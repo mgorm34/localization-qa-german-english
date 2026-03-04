@@ -1,26 +1,18 @@
 ---
-title: Localization QA German English
-emoji: 🔍
+title: Technical Translation QA
+emoji: 🔤
 colorFrom: blue
-colorTo: green
+colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
 ---
 
-# German-English Translation QA
+# Technical Translation QA Pipeline
 
-An end-to-end machine translation quality assurance pipeline.
-
-## Features
-- German to English translation using Helsinki-NLP opus-mt
-- Reference-free scoring (perplexity + back-translation)
-- Reference-based scoring (chrF + BERTScore)
-- POS-aware glossary QA using spaCy
-- Automatic error classification
-
-## How to Use
-1. Enter a German sentence
-2. Optionally add a reference translation
-3. Click Translate and Analyse
-4. Review scores and QA results
+Domain-specific German↔English translation with:
+- Confidence highlighting and clickable word alternatives
+- 10 specialized glossaries (Medical, Legal, History, Engineering, Finance)
+- Glossary management UI for browsing, editing, and building glossaries
+- Document upload translation (.txt, .pdf, .docx)
+- Quality scoring (perplexity + back-translation chrF)
