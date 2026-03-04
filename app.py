@@ -201,4 +201,4 @@ with gr.Blocks(title="German-English MT QA Demo") as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=7860)
