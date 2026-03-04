@@ -1,11 +1,10 @@
 ---
-title: Localization QA
-emoji: 🌍
+title: Localization QA German English
+emoji: 🔍
 colorFrom: blue
 colorTo: green
-sdk: gradio
-sdk_version: 4.0.0
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
