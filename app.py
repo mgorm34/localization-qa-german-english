@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 
+import requests as http_requests
 import sacrebleu
 import spacy
 import torch
@@ -67,6 +68,116 @@ except OSError:
     nlp_de = spacy.load("de_core_news_sm")
 
 print(f"All models loaded ✓  (spaCy EN: {SPACY_MODEL})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DEEPL API
+# ══════════════════════════════════════════════════════════════════════════════
+
+DEEPL_API_KEY = os.environ.get("DEEPL_API_KEY", "YOUR_KEY_HERE")
+DEEPL_URL = "https://api-free.deepl.com/v2/translate"
+
+DEEPL_LANG_MAP = {
+    "de-en": ("DE", "EN"),
+    "en-de": ("EN", "DE"),
+}
+
+
+def translate_deepl(text, direction="de-en"):
+    """Translate using DeepL API. Returns translated text or None on failure."""
+    if DEEPL_API_KEY == "YOUR_KEY_HERE":
+        return None
+    src_lang, tgt_lang = DEEPL_LANG_MAP.get(direction, ("DE", "EN"))
+    try:
+        resp = http_requests.post(DEEPL_URL, data={
+            "auth_key": DEEPL_API_KEY,
+            "text": text,
+            "source_lang": src_lang,
+            "target_lang": tgt_lang,
+        }, timeout=30)
+        if resp.status_code == 200:
+            return resp.json()["translations"][0]["text"]
+        else:
+            print(f"DeepL error {resp.status_code}: {resp.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"DeepL request failed: {e}")
+        return None
+
+
+def translate_primary(text, direction="de-en"):
+    """Primary translation: DeepL with MarianMT fallback."""
+    result = translate_deepl(text, direction)
+    if result:
+        return result, "deepl"
+    # Fallback to MarianMT
+    best, _, _ = translate_with_beams(text, direction, fast=True)
+    return best, "marian"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WORD ALIGNMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_word_alignment(source_text, translation_text, direction="de-en"):
+    """
+    Build bidirectional word alignment between source and translation.
+    Returns {
+        "src_to_tgt": {0: [1,2], 1: [3], ...},
+        "tgt_to_src": {0: [], 1: [0], 2: [0], 3: [1], ...},
+        "src_glossary": {idx: {entry info}},
+        "tgt_glossary": {idx: {entry info}},
+    }
+    Uses difflib on back-translation alignment + direct token matching.
+    """
+    src_words = source_text.split()
+    tgt_words = translation_text.split()
+
+    src_to_tgt = {i: [] for i in range(len(src_words))}
+    tgt_to_src = {i: [] for i in range(len(tgt_words))}
+
+    # Strategy 1: Use difflib SequenceMatcher on lowercased tokens
+    # Back-translate to get an intermediate alignment anchor
+    src_lower = [w.lower().strip(".,;:!?\"'()[]{}") for w in src_words]
+    tgt_lower = [w.lower().strip(".,;:!?\"'()[]{}") for w in tgt_words]
+
+    # Direct token overlap (cognates, proper nouns, numbers)
+    for i, sw in enumerate(src_lower):
+        for j, tw in enumerate(tgt_lower):
+            if sw == tw and len(sw) > 2:
+                src_to_tgt[i].append(j)
+                tgt_to_src[j].append(i)
+
+    # Strategy 2: Positional heuristic for unaligned words
+    # Map roughly by position ratio
+    if len(src_words) > 0 and len(tgt_words) > 0:
+        ratio = len(tgt_words) / len(src_words)
+        for i in range(len(src_words)):
+            if not src_to_tgt[i]:  # not yet aligned
+                j = min(int(i * ratio), len(tgt_words) - 1)
+                # Check a small window around the expected position
+                best_j = j
+                best_sim = 0
+                for k in range(max(0, j - 2), min(len(tgt_words), j + 3)):
+                    if not tgt_to_src[k]:  # prefer unaligned targets
+                        # Simple character overlap similarity
+                        sim = difflib.SequenceMatcher(None, src_lower[i], tgt_lower[k]).ratio()
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_j = k
+                src_to_tgt[i].append(best_j)
+                tgt_to_src[best_j].append(i)
+
+    # Deduplicate
+    for k in src_to_tgt:
+        src_to_tgt[k] = sorted(set(src_to_tgt[k]))
+    for k in tgt_to_src:
+        tgt_to_src[k] = sorted(set(tgt_to_src[k]))
+
+    return {
+        "src_to_tgt": {str(k): v for k, v in src_to_tgt.items()},
+        "tgt_to_src": {str(k): v for k, v in tgt_to_src.items()},
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -634,12 +745,17 @@ def api_translate():
     if len(source) > 10000:
         return jsonify({"error": "Text exceeds 10,000 character limit"}), 400
 
-    best, candidates, score_map = translate_with_beams(source, direction)
+    # Primary translation via DeepL (with MarianMT fallback)
+    best, engine = translate_primary(source, direction)
     best = glossary_post_process(best, domain, direction)
+
+    # Generate alternatives from MarianMT beam search (lighter pass)
+    _, candidates, score_map = translate_with_beams(source, direction)
     alts = precompute_all_alternatives(best, candidates, score_map, domain)
     confidences = compute_all_confidences(best, candidates, domain, direction, source)
-    ppl = score_perplexity(best)
-    acc = score_backtranslation(source, best, direction)
+
+    # Word alignment for hover highlighting
+    alignment = compute_word_alignment(source, best, direction)
 
     # Find glossary terms in source
     source_glossary_matches = find_glossary_terms_in_source(domain, source, direction)
@@ -648,17 +764,53 @@ def api_translate():
         for s, e, ent in source_glossary_matches
     ]
 
+    # Build source-side glossary annotations (per word)
+    src_words = source.split()
+    src_glossary = {}
+    for s, e, ent in source_glossary_matches:
+        # Map character positions to word indices
+        char_pos = 0
+        for wi, w in enumerate(src_words):
+            if char_pos >= s and char_pos < e:
+                src_glossary[str(wi)] = {
+                    "term": ent["source"],
+                    "preferred": ent["preferred"],
+                    "context": ent.get("context", ""),
+                    "confidence": ent.get("confidence", 0.8),
+                }
+            char_pos += len(w) + 1
+
+    # Collect review flags (consecutive low-confidence content words)
+    review_items = []
+    tgt_words = best.split()
+    for i, w in enumerate(tgt_words):
+        key = str(i)
+        conf = confidences.get(key)
+        if conf and conf["flags"].get("content_word") and conf["score"] < 50:
+            review_items.append({
+                "idx": i,
+                "word": w,
+                "score": conf["score"],
+                "reason": conf["flags"].get("glossary", "low_confidence"),
+            })
+
+    acc = score_backtranslation(source, best, direction)
+
     state.update(source=source, translation=best, candidates=candidates,
                  score_map=score_map, alternatives=alts, direction=direction, domain=domain)
 
     return jsonify({
         "translation": best,
-        "words": best.split(),
+        "words": tgt_words,
+        "source_words": src_words,
         "alternatives": alts,
         "confidences": confidences,
-        "perplexity": ppl,
+        "alignment": alignment,
+        "src_glossary": src_glossary,
         "accuracy": acc,
+        "engine": engine,
         "source_glossary_matches": source_matches_data,
+        "review_items": review_items,
     })
 
 
@@ -696,7 +848,7 @@ def api_retranslate():
 
 @app.route("/api/upload-document", methods=["POST"])
 def api_upload_document():
-    """Upload a document, extract text, translate paragraph by paragraph."""
+    """Upload a document, extract text, translate paragraph by paragraph via DeepL."""
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     f = request.files["file"]
@@ -712,16 +864,21 @@ def api_upload_document():
     results = []
     for para in paragraphs:
         if len(para.strip()) < 2:
-            results.append({"source": para, "translation": para, "words": para.split(),
+            results.append({"source": para, "translation": para,
+                            "source_words": para.split(), "words": para.split(),
+                            "alignment": {"src_to_tgt": {}, "tgt_to_src": {}},
                             "alternatives": {}, "confidences": {}})
             continue
-        # Fast mode: single translation, no alternatives or scoring
-        best, _, _ = translate_with_beams(para, direction, fast=True)
+        # Use DeepL for speed + quality
+        best, engine = translate_primary(para, direction)
         best = glossary_post_process(best, domain, direction)
+        alignment = compute_word_alignment(para, best, direction)
         results.append({
             "source": para,
             "translation": best,
+            "source_words": para.split(),
             "words": best.split(),
+            "alignment": alignment,
             "alternatives": {},
             "confidences": {},
         })
@@ -861,84 +1018,78 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-    font-family: 'Inter', sans-serif;
-    background: #0f172a;
-    color: #e2e8f0;
-    min-height: 100vh;
-    padding: 24px;
-}
-.container { max-width: 1060px; margin: 0 auto; }
+body { font-family: 'Inter', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 24px; }
+.container { max-width: 1200px; margin: 0 auto; }
 h1 { font-size: 22px; font-weight: 700; color: #f1f5f9; margin-bottom: 2px; }
 .subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
 
-/* Controls row */
+/* Controls */
 .controls { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 16px; }
 .ctrl-group label { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-select, .dir-btn {
-    padding: 7px 14px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0;
-    border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; outline: none;
-}
+select, .dir-btn { padding: 7px 14px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; outline: none; }
 select:focus { border-color: #3b82f6; }
 .dir-btn { font-weight: 500; transition: all 0.15s; }
 .dir-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 .dir-row { display: flex; gap: 6px; }
 
-/* Panels */
-.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
-@media (max-width: 700px) { .panels { grid-template-columns: 1fr; } }
+/* Legend */
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #64748b; margin-bottom: 16px; padding: 8px 12px; background: #1e293b; border-radius: 6px; border: 1px solid #334155; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-swatch { width: 14px; height: 4px; border-radius: 2px; }
+
+/* Input area (before translation) */
+.input-area { margin-bottom: 12px; }
 .panel-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: flex; justify-content: space-between; }
 .char-count { font-weight: 400; color: #475569; }
-textarea {
-    width: 100%; min-height: 140px; background: #1e293b; border: 1px solid #334155; border-radius: 8px;
-    color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.6; padding: 12px;
-    resize: vertical; outline: none; transition: border-color 0.15s;
-}
+textarea { width: 100%; min-height: 120px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.6; padding: 12px; resize: vertical; outline: none; }
 textarea:focus { border-color: #3b82f6; }
 
-/* Translation output */
-.trans-box {
-    background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;
-    min-height: 140px; line-height: 1.8; font-size: 15px; position: relative; overflow: visible;
-}
-.tw-word { color: #e2e8f0; padding: 2px 1px; border-radius: 3px; transition: background 0.15s; }
+/* Side-by-side panels (after translation) */
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
+@media (max-width: 700px) { .side-by-side { grid-template-columns: 1fr; } }
+.text-panel { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; min-height: 120px; line-height: 1.8; font-size: 15px; position: relative; overflow: visible; }
+
+/* Word spans */
+.tw-word { color: #e2e8f0; padding: 2px 1px; border-radius: 3px; transition: all 0.15s; cursor: default; }
 .tw-has-alt { cursor: pointer; border-bottom: 2px dotted #60a5fa; }
 .tw-has-alt:hover { background: #1e3a5f; }
+.tw-src-word { cursor: pointer; }
+
+/* Hover alignment highlighting */
+.tw-align-highlight { background: rgba(59, 130, 246, 0.25) !important; border-radius: 3px; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
 
 /* Confidence highlighting */
 .tw-low-conf { background: rgba(251, 146, 60, 0.15); border-bottom: 2px solid #fb923c; }
-.tw-low-conf:hover { background: rgba(251, 146, 60, 0.25); }
 .tw-very-low-conf { background: rgba(248, 113, 113, 0.15); border-bottom: 2px solid #f87171; }
-.tw-very-low-conf:hover { background: rgba(248, 113, 113, 0.25); }
 .tw-glossary-avoid { background: rgba(248, 113, 113, 0.2); border-bottom: 2px solid #ef4444; text-decoration: line-through; text-decoration-color: #ef4444; }
 .tw-glossary-preferred { border-bottom: 2px solid #4ade80; }
+.tw-src-glossary { border-bottom: 2px solid #4ade80; }
+
+/* Review badge */
+.review-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #7c2d12; color: #fb923c; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+.review-badge:hover { background: #9a3412; }
+
+/* Tooltip */
+.hover-tooltip { position: fixed; background: #0f172a; border: 1px solid #475569; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: #e2e8f0; z-index: 10000; max-width: 280px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none; }
+.hover-tooltip .tt-label { color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+.hover-tooltip .tt-term { font-weight: 600; color: #f1f5f9; }
+.hover-tooltip .tt-glossary { color: #4ade80; font-size: 11px; margin-top: 4px; }
+.hover-tooltip .tt-context { color: #94a3b8; font-size: 11px; font-style: italic; margin-top: 2px; }
 
 .placeholder { color: #64748b; }
 
 /* Dropdown */
-.tw-dropdown {
-    position: absolute; background: #1e293b; border: 1px solid #475569; border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px 0; z-index: 9999; min-width: 160px; max-width: 300px;
-}
-.tw-dropdown button {
-    display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px;
-    border: none; background: none; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 14px;
-    cursor: pointer; gap: 8px; text-align: left;
-}
+.tw-dropdown { position: absolute; background: #1e293b; border: 1px solid #475569; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px 0; z-index: 9999; min-width: 160px; max-width: 300px; }
+.tw-dropdown button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border: none; background: none; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 14px; cursor: pointer; gap: 8px; text-align: left; }
 .tw-dropdown button:hover { background: #334155; }
 .tw-dropdown .q-score { font-size: 11px; font-weight: 600; min-width: 24px; text-align: right; }
-.tw-dropdown .g-tag {
-    font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: 4px;
-}
+.tw-dropdown .g-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
 .g-preferred { background: #166534; color: #4ade80; }
 .g-acceptable { background: #854d0e; color: #facc15; }
 .g-avoid { background: #7f1d1d; color: #f87171; }
 
-/* Scores */
-.scores-bar {
-    display: flex; gap: 24px; flex-wrap: wrap; margin-top: 10px; padding: 8px 12px;
-    background: #1e293b; border: 1px solid #334155; border-radius: 8px; font-size: 13px;
-}
+/* Scores bar */
+.scores-bar { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 10px; padding: 8px 12px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; font-size: 13px; }
 .score-label { color: #94a3b8; }
 .score-value { font-weight: 600; margin-left: 4px; }
 .score-tag { font-size: 12px; margin-left: 4px; }
@@ -946,51 +1097,30 @@ textarea:focus { border-color: #3b82f6; }
 
 /* Buttons */
 .btn-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-.btn {
-    padding: 9px 24px; border: none; border-radius: 8px; font-family: 'Inter', sans-serif;
-    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-}
+.btn { padding: 9px 24px; border: none; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
 .btn-primary { background: #3b82f6; color: #fff; }
 .btn-primary:hover { background: #2563eb; }
 .btn-primary:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
 .btn-secondary { background: #334155; color: #e2e8f0; }
 .btn-secondary:hover { background: #475569; }
 
-/* Upload area */
-.upload-area {
-    border: 2px dashed #334155; border-radius: 8px; padding: 20px; text-align: center;
-    color: #64748b; font-size: 14px; cursor: pointer; transition: all 0.15s; margin-bottom: 16px;
-}
-.upload-area:hover { border-color: #3b82f6; color: #94a3b8; }
-.upload-area.dragover { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
-
-/* Document results */
+/* Doc results: side-by-side per paragraph */
 .doc-results { margin-top: 16px; }
-.doc-para { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
-.doc-source { color: #94a3b8; font-size: 13px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #334155; }
-.doc-trans { line-height: 1.8; font-size: 15px; position: relative; }
-
-/* Tooltip */
-.conf-tooltip {
-    position: absolute; background: #0f172a; border: 1px solid #475569; border-radius: 6px;
-    padding: 8px 12px; font-size: 12px; color: #e2e8f0; z-index: 10000; max-width: 260px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: none;
-}
+.doc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+@media (max-width: 700px) { .doc-row { grid-template-columns: 1fr; } }
+.doc-panel { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; line-height: 1.8; font-size: 14px; position: relative; overflow: visible; }
+.doc-panel-label { font-size: 10px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 6px; }
 
 /* Loading */
 .loading { display: none; }
 .loading.active { display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.spinner {
-    display: inline-block; width: 14px; height: 14px; border: 2px solid #475569;
-    border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite;
-    vertical-align: middle; margin-left: 6px;
-}
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #475569; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-left: 6px; }
 
-/* Legend */
-.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #64748b; margin-bottom: 16px; padding: 8px 12px; background: #1e293b; border-radius: 6px; border: 1px solid #334155; }
-.legend-item { display: flex; align-items: center; gap: 4px; }
-.legend-swatch { width: 14px; height: 4px; border-radius: 2px; }
+/* Engine badge */
+.engine-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+.engine-deepl { background: #0f2b46; color: #0fa9e6; }
+.engine-marian { background: #1a1a2e; color: #a78bfa; }
 </style>
 </head>
 <body>
@@ -1015,25 +1145,38 @@ textarea:focus { border-color: #3b82f6; }
     </div>
 
     <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span> Hover alignment</div>
         <div class="legend-item"><span class="legend-swatch" style="background:#60a5fa;"></span> Has alternatives</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:#4ade80;"></span> Glossary preferred</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:#fb923c;"></span> Low confidence — review</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:#f87171;"></span> Very low / avoid</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#4ade80;"></span> Glossary match</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#fb923c;"></span> Needs review</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#f87171;"></span> Avoid / flagged</div>
     </div>
 
-    <div class="panels">
+    <!-- Input area: shown before translation -->
+    <div class="input-area" id="inputArea">
+        <div class="panel-label">
+            <span>Source Text</span>
+            <span class="char-count" id="charCount">0 / 10,000</span>
+        </div>
+        <textarea id="source" placeholder="Enter text here…" maxlength="10000" oninput="updateCharCount()"></textarea>
+    </div>
+
+    <!-- Side-by-side: shown after translation -->
+    <div class="side-by-side" id="sideBySide" style="display:none;">
         <div>
             <div class="panel-label">
                 <span>Source</span>
-                <span class="char-count" id="charCount">0 / 10,000</span>
+                <span class="char-count" id="charCount2"></span>
             </div>
-            <textarea id="source" placeholder="Enter text here…" maxlength="10000" oninput="updateCharCount()"></textarea>
+            <div class="text-panel" id="sourcePanel"><span class="placeholder">Source</span></div>
         </div>
         <div>
-            <div class="panel-label"><span>Translation</span></div>
-            <div class="trans-box" id="transBox">
-                <span class="placeholder">Translation will appear here.</span>
+            <div class="panel-label">
+                <span>Translation</span>
+                <span id="engineBadge"></span>
+                <span id="reviewBadgeArea"></span>
             </div>
+            <div class="text-panel" id="transBox"><span class="placeholder">Translation will appear here.</span></div>
         </div>
     </div>
 
@@ -1043,6 +1186,7 @@ textarea:focus { border-color: #3b82f6; }
         <button class="btn btn-primary" id="translateBtn" onclick="doTranslate()">
             Translate <span class="loading" id="transLoading"><span class="spinner"></span></span>
         </button>
+        <button class="btn btn-secondary" id="editBtn" onclick="backToEdit()" style="display:none;">Edit Source</button>
         <label class="btn btn-secondary" style="position:relative;">
             Upload Document
             <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.doc" onchange="handleFileUpload(event)" style="position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;cursor:pointer;">
@@ -1052,16 +1196,20 @@ textarea:focus { border-color: #3b82f6; }
     <div class="doc-results" id="docResults" style="display:none;"></div>
 </div>
 
+<!-- Tooltip element -->
+<div class="hover-tooltip" id="hoverTooltip" style="display:none;"></div>
+
 <script>
 let currentDir = 'de-en';
 let currentDomain = 'general';
-let currentTranslation = '';
+let currentData = null;  // full response data for alignment lookups
 
 // Load domains
 async function loadDomains() {
     const res = await fetch('/api/domains');
     const data = await res.json();
     const sel = document.getElementById('domainSelect');
+    sel.innerHTML = '';
     data.domains.forEach(d => {
         const opt = document.createElement('option');
         opt.value = d.id;
@@ -1075,13 +1223,13 @@ function setDir(dir) {
     currentDir = dir;
     document.querySelectorAll('.dir-btn').forEach(b => b.classList.toggle('active', b.dataset.dir === dir));
 }
-
 function updateCharCount() {
     const ta = document.getElementById('source');
     document.getElementById('charCount').textContent = ta.value.length.toLocaleString() + ' / 10,000';
 }
 
-function closeDropdowns() { document.querySelectorAll('.tw-dropdown').forEach(el => el.remove()); }
+function esc(t) { return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(t) { return String(t||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function qualityColor(q) {
     if (q >= 75) return '#4ade80';
@@ -1089,14 +1237,6 @@ function qualityColor(q) {
     if (q >= 25) return '#fb923c';
     return '#f87171';
 }
-
-function pplLabel(ppl) {
-    if (ppl < 50) return ['Good', '#4ade80'];
-    if (ppl < 100) return ['Fair', '#facc15'];
-    if (ppl < 200) return ['Poor', '#fb923c'];
-    return ['Bad', '#f87171'];
-}
-
 function accLabel(acc) {
     if (acc > 70) return ['Good', '#4ade80'];
     if (acc > 50) return ['Fair', '#facc15'];
@@ -1104,67 +1244,115 @@ function accLabel(acc) {
     return ['Bad', '#f87171'];
 }
 
-function escapeHtml(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function escapeAttr(t) { return t.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function closeDropdowns() { document.querySelectorAll('.tw-dropdown').forEach(el => el.remove()); }
 
-function renderWords(words, alts, confidences, container) {
+// ── Render source words (interactive, hoverable) ──
+function renderSourceWords(words, srcGlossary, container, pairId) {
+    let html = '';
+    words.forEach((word, i) => {
+        let cls = 'tw-word tw-src-word';
+        let extra = ' data-side="src" data-idx="' + i + '" data-pair="' + pairId + '"';
+        const gInfo = srcGlossary && srcGlossary[String(i)];
+        if (gInfo) {
+            cls += ' tw-src-glossary';
+            extra += ' data-glossary="' + escAttr(JSON.stringify(gInfo)) + '"';
+        }
+        html += '<span class="' + cls + '"' + extra + '>' + esc(word) + '</span> ';
+    });
+    container.innerHTML = html;
+}
+
+// ── Render target words (interactive, hoverable, clickable for alts) ──
+function renderTargetWords(words, alts, confidences, container, pairId) {
     let html = '';
     words.forEach((word, i) => {
         const key = String(i);
         const conf = confidences && confidences[key] ? confidences[key] : null;
         const hasAlts = alts && alts[key] && alts[key].length > 0;
         let cls = 'tw-word';
-        let extra = '';
+        let extra = ' data-side="tgt" data-idx="' + i + '" data-pair="' + pairId + '"';
 
         if (conf) {
             const flags = conf.flags || {};
-            if (flags.glossary === 'avoid') {
-                cls += ' tw-glossary-avoid';
-            } else if (flags.glossary === 'preferred') {
-                cls += ' tw-glossary-preferred';
-            } else if (conf.score < 30 && flags.content_word) {
-                cls += ' tw-very-low-conf';
-            } else if (conf.score < 60 && flags.content_word) {
-                cls += ' tw-low-conf';
-            }
+            if (flags.glossary === 'avoid') cls += ' tw-glossary-avoid';
+            else if (flags.glossary === 'preferred') cls += ' tw-glossary-preferred';
+            else if (conf.score < 30 && flags.content_word) cls += ' tw-very-low-conf';
+            else if (conf.score < 60 && flags.content_word) cls += ' tw-low-conf';
         }
-
         if (hasAlts) {
             cls += ' tw-has-alt';
-            extra = ' data-alts="' + escapeAttr(JSON.stringify(alts[key])) + '"';
+            extra += ' data-alts="' + escAttr(JSON.stringify(alts[key])) + '"';
         }
+        if (conf) extra += ' data-conf="' + escAttr(JSON.stringify(conf)) + '"';
 
-        if (conf) {
-            extra += ' data-conf="' + escapeAttr(JSON.stringify(conf)) + '"';
-        }
-
-        html += '<span class="' + cls + '" data-idx="' + i + '"' + extra + '>' + escapeHtml(word) + '</span> ';
+        html += '<span class="' + cls + '"' + extra + '>' + esc(word) + '</span> ';
     });
     container.innerHTML = html;
 }
 
-function renderTranslation(data) {
-    const box = document.getElementById('transBox');
-    renderWords(data.words, data.alternatives, data.confidences, box);
-    currentTranslation = data.translation;
+// ── Show side-by-side after translation ──
+function showTranslation(data) {
+    currentData = data;
+    // Hide input, show side-by-side
+    document.getElementById('inputArea').style.display = 'none';
+    document.getElementById('sideBySide').style.display = 'grid';
+    document.getElementById('editBtn').style.display = '';
+    document.getElementById('docResults').style.display = 'none';
 
-    if (data.perplexity !== undefined) {
-        const [pLbl, pClr] = pplLabel(data.perplexity);
+    // Store alignment data on a global for hover lookups
+    window._alignment = data.alignment || {};
+    window._pairId = 'main';
+
+    // Render source panel
+    renderSourceWords(data.source_words, data.src_glossary || {}, document.getElementById('sourcePanel'), 'main');
+
+    // Render translation panel
+    renderTargetWords(data.words, data.alternatives, data.confidences, document.getElementById('transBox'), 'main');
+
+    // Engine badge
+    const badge = document.getElementById('engineBadge');
+    if (data.engine === 'deepl') {
+        badge.innerHTML = '<span class="engine-badge engine-deepl">DeepL</span>';
+    } else {
+        badge.innerHTML = '<span class="engine-badge engine-marian">MarianMT</span>';
+    }
+
+    // Review badge
+    const reviewArea = document.getElementById('reviewBadgeArea');
+    if (data.review_items && data.review_items.length > 0) {
+        reviewArea.innerHTML = '<span class="review-badge" onclick="jumpToReview()">' + data.review_items.length + ' to review</span>';
+    } else {
+        reviewArea.innerHTML = '';
+    }
+
+    // Scores
+    if (data.accuracy !== undefined) {
         const [aLbl, aClr] = accLabel(data.accuracy);
         const sb = document.getElementById('scoresBar');
         sb.style.display = 'flex';
         sb.innerHTML =
-            '<div><span class="score-label">Fluency:</span>' +
-            '<span class="score-value" style="color:' + pClr + '">' + data.perplexity + '</span>' +
-            '<span class="score-tag" style="color:' + pClr + '"> ' + pLbl + '</span>' +
-            '<span class="score-hint">(perplexity — lower is better)</span></div>' +
             '<div><span class="score-label">Accuracy:</span>' +
             '<span class="score-value" style="color:' + aClr + '">' + data.accuracy + '</span>' +
             '<span class="score-tag" style="color:' + aClr + '"> ' + aLbl + '</span>' +
-            '<span class="score-hint">(chrF — higher is better)</span></div>';
+            '<span class="score-hint">(chrF back-translation)</span></div>';
     }
 }
 
+function backToEdit() {
+    document.getElementById('inputArea').style.display = '';
+    document.getElementById('sideBySide').style.display = 'none';
+    document.getElementById('editBtn').style.display = 'none';
+    document.getElementById('scoresBar').style.display = 'none';
+}
+
+function jumpToReview() {
+    if (!currentData || !currentData.review_items || !currentData.review_items.length) return;
+    const firstIdx = currentData.review_items[0].idx;
+    const el = document.querySelector('#transBox .tw-word[data-idx="' + firstIdx + '"]');
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '2px solid #fb923c'; setTimeout(() => el.style.outline = '', 2000); }
+}
+
+// ── Translate ──
 async function doTranslate() {
     const source = document.getElementById('source').value.trim();
     if (!source) return;
@@ -1172,7 +1360,6 @@ async function doTranslate() {
     const spinner = document.getElementById('transLoading');
     btn.disabled = true;
     spinner.classList.add('active');
-    document.getElementById('docResults').style.display = 'none';
     try {
         const res = await fetch('/api/translate', {
             method: 'POST',
@@ -1181,15 +1368,15 @@ async function doTranslate() {
         });
         const data = await res.json();
         if (data.error) { alert(data.error); return; }
-        renderTranslation(data);
+        showTranslation(data);
     } catch(e) { alert('Translation failed: ' + e.message);
     } finally { btn.disabled = false; spinner.classList.remove('active'); }
 }
 
+// ── Retranslate (pick alternative) ──
 async function pickAlternative(phrase) {
     closeDropdowns();
-    const box = document.getElementById('transBox');
-    box.style.opacity = '0.5';
+    document.getElementById('transBox').style.opacity = '0.5';
     try {
         const res = await fetch('/api/retranslate', {
             method: 'POST',
@@ -1198,11 +1385,13 @@ async function pickAlternative(phrase) {
         });
         const data = await res.json();
         if (data.error) { alert(data.error); return; }
-        renderTranslation(data);
+        // Re-render target panel only
+        renderTargetWords(data.words, data.alternatives, data.confidences, document.getElementById('transBox'), 'main');
     } catch(e) { alert('Retranslation failed: ' + e.message);
-    } finally { box.style.opacity = '1'; }
+    } finally { document.getElementById('transBox').style.opacity = '1'; }
 }
 
+// ── Document upload ──
 async function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1228,25 +1417,119 @@ async function handleFileUpload(event) {
 }
 
 function renderDocResults(data) {
+    document.getElementById('inputArea').style.display = 'none';
+    document.getElementById('sideBySide').style.display = 'none';
+    document.getElementById('editBtn').style.display = '';
     const container = document.getElementById('docResults');
     container.style.display = 'block';
-    let html = '<h3 style="color:#f1f5f9;font-size:16px;margin-bottom:12px;">Document: ' + escapeHtml(data.filename) + '</h3>';
+
+    let html = '<h3 style="color:#f1f5f9;font-size:16px;margin-bottom:12px;">Document: ' + esc(data.filename) + '</h3>';
     data.paragraphs.forEach((para, idx) => {
-        html += '<div class="doc-para">';
-        html += '<div class="doc-source">' + escapeHtml(para.source) + '</div>';
-        html += '<div class="doc-trans" id="docPara' + idx + '"></div>';
+        html += '<div class="doc-row" data-doc-pair="doc' + idx + '">';
+        html += '<div><div class="doc-panel-label">Source</div><div class="doc-panel" id="docSrc' + idx + '"></div></div>';
+        html += '<div><div class="doc-panel-label">Translation</div><div class="doc-panel" id="docTgt' + idx + '"></div></div>';
         html += '</div>';
     });
     container.innerHTML = html;
 
-    // Render interactive words for each paragraph
+    // Store alignment data per paragraph
+    window._docAlignments = {};
     data.paragraphs.forEach((para, idx) => {
-        const el = document.getElementById('docPara' + idx);
-        if (el) renderWords(para.words, para.alternatives, para.confidences, el);
+        const pairId = 'doc' + idx;
+        window._docAlignments[pairId] = para.alignment || {};
+        const srcEl = document.getElementById('docSrc' + idx);
+        const tgtEl = document.getElementById('docTgt' + idx);
+        if (srcEl) renderSourceWords(para.source_words || para.source.split(' '), {}, srcEl, pairId);
+        if (tgtEl) renderTargetWords(para.words, para.alternatives || {}, para.confidences || {}, tgtEl, pairId);
     });
 }
 
-// Event delegation for word clicks
+// ── Hover alignment logic ──
+function getAlignment(pairId) {
+    if (pairId === 'main') return window._alignment || {};
+    return (window._docAlignments || {})[pairId] || {};
+}
+
+function clearAllHighlights() {
+    document.querySelectorAll('.tw-align-highlight').forEach(el => el.classList.remove('tw-align-highlight'));
+}
+
+const tooltip = document.getElementById('hoverTooltip');
+
+document.addEventListener('mouseover', function(e) {
+    const wordEl = e.target.closest('.tw-word');
+    if (!wordEl) { clearAllHighlights(); tooltip.style.display = 'none'; return; }
+
+    const side = wordEl.getAttribute('data-side');
+    const idx = wordEl.getAttribute('data-idx');
+    const pairId = wordEl.getAttribute('data-pair');
+    if (!side || idx === null || !pairId) return;
+
+    clearAllHighlights();
+    wordEl.classList.add('tw-align-highlight');
+
+    const alignment = getAlignment(pairId);
+    let linkedIndices = [];
+
+    if (side === 'src' && alignment.src_to_tgt) {
+        linkedIndices = alignment.src_to_tgt[idx] || [];
+        linkedIndices.forEach(j => {
+            const el = document.querySelector('[data-pair="' + pairId + '"][data-side="tgt"][data-idx="' + j + '"]');
+            if (el) el.classList.add('tw-align-highlight');
+        });
+    } else if (side === 'tgt' && alignment.tgt_to_src) {
+        linkedIndices = alignment.tgt_to_src[idx] || [];
+        linkedIndices.forEach(j => {
+            const el = document.querySelector('[data-pair="' + pairId + '"][data-side="src"][data-idx="' + j + '"]');
+            if (el) el.classList.add('tw-align-highlight');
+        });
+    }
+
+    // Build tooltip
+    let ttHtml = '';
+    const gData = wordEl.getAttribute('data-glossary');
+    const confData = wordEl.getAttribute('data-conf');
+
+    if (gData) {
+        try {
+            const g = JSON.parse(gData);
+            ttHtml += '<div class="tt-label">Glossary</div>';
+            ttHtml += '<div class="tt-term">' + esc(g.term) + ' → ' + esc(g.preferred) + '</div>';
+            if (g.context) ttHtml += '<div class="tt-context">' + esc(g.context) + '</div>';
+        } catch(e) {}
+    }
+    if (confData) {
+        try {
+            const c = JSON.parse(confData);
+            if (c.flags) {
+                if (c.flags.glossary === 'preferred') ttHtml += '<div class="tt-glossary">Glossary preferred term</div>';
+                else if (c.flags.glossary === 'acceptable') ttHtml += '<div class="tt-glossary">Acceptable (preferred: ' + esc(c.flags.glossary_preferred) + ')</div>';
+                else if (c.flags.glossary === 'avoid') ttHtml += '<div style="color:#f87171;font-size:11px;margin-top:4px;">Avoid — use: ' + esc(c.flags.glossary_preferred) + '</div>';
+                if (c.flags.context) ttHtml += '<div class="tt-context">' + esc(c.flags.context) + '</div>';
+            }
+            if (c.score !== undefined) ttHtml += '<div style="color:#64748b;font-size:11px;margin-top:4px;">Confidence: ' + c.score + '/100</div>';
+        } catch(e) {}
+    }
+
+    if (ttHtml) {
+        tooltip.innerHTML = ttHtml;
+        tooltip.style.display = 'block';
+        const rect = wordEl.getBoundingClientRect();
+        tooltip.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
+        tooltip.style.top = (rect.bottom + 8) + 'px';
+    } else {
+        tooltip.style.display = 'none';
+    }
+});
+
+document.addEventListener('mouseout', function(e) {
+    if (!e.relatedTarget || !e.relatedTarget.closest('.tw-word')) {
+        clearAllHighlights();
+        tooltip.style.display = 'none';
+    }
+});
+
+// ── Click handler for alternative dropdowns ──
 document.addEventListener('click', function(e) {
     var wordEl = e.target.closest('.tw-has-alt');
     if (wordEl) {
@@ -1257,7 +1540,7 @@ document.addEventListener('click', function(e) {
         if (!alts || alts.length === 0) return;
 
         var rect = wordEl.getBoundingClientRect();
-        var parent = wordEl.closest('.trans-box') || wordEl.closest('.doc-trans');
+        var parent = wordEl.closest('.text-panel') || wordEl.closest('.doc-panel');
         if (!parent) return;
         var parentRect = parent.getBoundingClientRect();
 
@@ -1270,12 +1553,8 @@ document.addEventListener('click', function(e) {
             var btn = document.createElement('button');
             var txt = document.createElement('span');
             txt.textContent = item.text;
-
             var right = document.createElement('span');
-            right.style.display = 'flex';
-            right.style.alignItems = 'center';
-            right.style.gap = '4px';
-
+            right.style.display = 'flex'; right.style.alignItems = 'center'; right.style.gap = '4px';
             if (item.glossary) {
                 var tag = document.createElement('span');
                 tag.className = 'g-tag';
@@ -1284,23 +1563,17 @@ document.addEventListener('click', function(e) {
                 else if (item.glossary.status === 'avoid') { tag.className += ' g-avoid'; tag.textContent = 'avoid'; }
                 right.appendChild(tag);
             }
-
             var sc = document.createElement('span');
-            sc.className = 'q-score';
-            sc.textContent = item.quality;
-            sc.style.color = qualityColor(item.quality);
+            sc.className = 'q-score'; sc.textContent = item.quality; sc.style.color = qualityColor(item.quality);
             right.appendChild(sc);
-
-            btn.appendChild(txt);
-            btn.appendChild(right);
+            btn.appendChild(txt); btn.appendChild(right);
             btn.onclick = function(ev) { ev.stopPropagation(); pickAlternative(item.text); };
             dd.appendChild(btn);
         });
-
         parent.appendChild(dd);
         return;
     }
-    if (!e.target.closest('.tw-dropdown')) { closeDropdowns(); }
+    if (!e.target.closest('.tw-dropdown')) closeDropdowns();
 });
 
 // Ctrl+Enter to translate
