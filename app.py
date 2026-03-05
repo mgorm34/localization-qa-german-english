@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 import requests as http_requests
 import sacrebleu
@@ -791,6 +792,35 @@ def api_status():
     })
 
 
+@app.route("/api/test-deepl", methods=["GET"])
+def api_test_deepl():
+    """Test DeepL API directly and return full diagnostic info."""
+    import traceback
+    result = {"key_loaded": bool(DEEPL_API_KEY), "key_length": len(DEEPL_API_KEY)}
+    if not DEEPL_API_KEY:
+        result["error"] = "No API key"
+        return jsonify(result)
+    try:
+        resp = http_requests.post(DEEPL_URL, data={
+            "auth_key": DEEPL_API_KEY,
+            "text": "Hallo Welt",
+            "source_lang": "DE",
+            "target_lang": "EN",
+        }, timeout=15)
+        result["status_code"] = resp.status_code
+        result["response_body"] = resp.text[:500]
+        if resp.status_code == 200:
+            result["translation"] = resp.json()["translations"][0]["text"]
+            result["success"] = True
+        else:
+            result["success"] = False
+    except Exception as e:
+        result["success"] = False
+        result["error"] = str(e)
+        result["traceback"] = traceback.format_exc()
+    return jsonify(result)
+
+
 @app.route("/api/domains", methods=["GET"])
 def api_domains():
     """Return available domains and their glossary sizes."""
@@ -808,7 +838,7 @@ def api_domains():
 @app.route("/api/translate", methods=["POST"])
 def api_translate():
     data = request.json
-    source = data.get("source", "").strip()
+    source = unicodedata.normalize("NFC", data.get("source", "")).strip()
     direction = data.get("direction", "de-en")
     domain = data.get("domain", "general")
     if not source:
@@ -928,6 +958,7 @@ def api_upload_document():
 
     file_bytes = f.read()
     text = extract_text_from_upload(file_bytes, f.filename)
+    text = unicodedata.normalize("NFC", text)
     if not text.strip():
         return jsonify({"error": "Could not extract text from file"}), 400
 
