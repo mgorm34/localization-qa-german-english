@@ -132,12 +132,21 @@ def translate_primary(text, direction="de-en"):
 # WORD ALIGNMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _clean(w):
+    """Strip punctuation and lowercase a word for matching."""
+    return w.lower().strip(".,;:!?\"'()[]{}–—-/")
+
+
 def compute_word_alignment(source_text, translation_text, direction="de-en"):
     """
-    Build bidirectional word alignment using back-translation as a bridge.
-    1. Back-translate the target → get pseudo-source
-    2. Align pseudo-source tokens to original source tokens (same language, difflib works well)
-    3. Use positional correspondence: source[i] ↔ pseudo_source[k] ↔ target[k]
+    Build bidirectional word alignment by translating each source word
+    individually and matching against target words.
+
+    Strategy:
+    1. Translate each source word individually via MarianMT → get per-word translations
+    2. Fuzzy-match each per-word translation against target words
+    3. Direct cognate/number matching as supplement
+    4. Compound word handling: if a source word translates to multiple target words, link all
     """
     src_words = source_text.split()
     tgt_words = translation_text.split()
@@ -148,65 +157,106 @@ def compute_word_alignment(source_text, translation_text, direction="de-en"):
     src_to_tgt = {i: [] for i in range(len(src_words))}
     tgt_to_src = {i: [] for i in range(len(tgt_words))}
 
-    # Step 1: Back-translate target to get pseudo-source (same language as source)
-    reverse_dir = "en-de" if direction == "de-en" else "de-en"
-    back_tok, back_model, _, _ = get_models(reverse_dir)
-    back_inputs = back_tok(translation_text, return_tensors="pt", padding=True, truncation=True)
+    tgt_clean = [_clean(w) for w in tgt_words]
+    tgt_used = set()  # track which target words are already matched
+
+    # Step 1: Translate each source word individually via MarianMT
+    fwd_tok, fwd_model, _, _ = get_models(direction)
+    word_translations = {}
+
+    # Batch translate all source words at once for speed
+    # Each source word is translated as its own sentence
+    clean_src = [_clean(w) for w in src_words]
+    inputs = fwd_tok(clean_src, return_tensors="pt", padding=True, truncation=True)
     with torch.no_grad():
-        back_out = back_model.generate(**back_inputs, num_beams=4, max_length=512)
-    pseudo_source = back_tok.decode(back_out[0], skip_special_tokens=True)
-    pseudo_words = pseudo_source.split()
+        outputs = fwd_model.generate(**inputs, num_beams=4, max_length=64)
+    for i, ids in enumerate(outputs):
+        trans = fwd_tok.decode(ids, skip_special_tokens=True).strip()
+        word_translations[i] = trans.lower()
 
-    # Step 2: Align original source ↔ pseudo-source (same language — difflib is reliable)
-    src_clean = [w.lower().strip(".,;:!?\"'()[]{}") for w in src_words]
-    pseudo_clean = [w.lower().strip(".,;:!?\"'()[]{}") for w in pseudo_words]
+    # Step 2: Match each source word's translation against target words
+    for i in range(len(src_words)):
+        trans = word_translations.get(i, "")
+        if not trans:
+            continue
+        trans_words = trans.split()
 
-    # Map pseudo-source indices to original source indices
-    pseudo_to_src = {}
-    sm = difflib.SequenceMatcher(None, pseudo_clean, src_clean)
-    for op, p1, p2, s1, s2 in sm.get_opcodes():
-        if op == "equal":
-            for offset in range(p2 - p1):
-                pseudo_to_src[p1 + offset] = s1 + offset
+        # Find best matching target word(s) for this translation
+        best_matches = []
+        for tw in trans_words:
+            tw_clean = _clean(tw)
+            if len(tw_clean) < 2:
+                continue
+            best_j = -1
+            best_score = 0.4  # minimum threshold
 
-    # Step 3: Build target ↔ pseudo-source positional mapping
-    # Target and pseudo-source come from the same model pass, so they share rough
-    # positional correspondence. Use ratio mapping with a window.
-    if len(pseudo_words) > 0:
-        ratio_tp = len(pseudo_words) / len(tgt_words)
-        for j in range(len(tgt_words)):
-            # Estimate which pseudo-source word corresponds to target word j
-            p_est = min(int(j * ratio_tp), len(pseudo_words) - 1)
-            # Check window around estimate
-            best_p = p_est
-            best_score = -1
-            tgt_clean_j = tgt_words[j].lower().strip(".,;:!?\"'()[]{}")
-            for p in range(max(0, p_est - 3), min(len(pseudo_words), p_est + 4)):
-                # Prefer pseudo words that map to a source word
-                score = 1.0 if p in pseudo_to_src else 0.0
-                # Boost if pseudo word is similar to any source word nearby
-                if p in pseudo_to_src:
-                    si = pseudo_to_src[p]
-                    score += difflib.SequenceMatcher(None, src_clean[si], tgt_clean_j).ratio()
+            for j, tc in enumerate(tgt_clean):
+                if len(tc) < 2:
+                    continue
+                # Exact match
+                if tw_clean == tc:
+                    score = 1.0
+                # Prefix/stem match (e.g., "relat" in "relates")
+                elif tc.startswith(tw_clean[:min(5, len(tw_clean))]) or tw_clean.startswith(tc[:min(5, len(tc))]):
+                    score = 0.8
+                else:
+                    # Fuzzy match
+                    score = difflib.SequenceMatcher(None, tw_clean, tc).ratio()
+
+                # Slight preference for unmatched target words
+                if j not in tgt_used:
+                    score += 0.05
+
                 if score > best_score:
                     best_score = score
-                    best_p = p
+                    best_j = j
 
-            if best_p in pseudo_to_src:
-                src_idx = pseudo_to_src[best_p]
-                if src_idx not in src_to_tgt or j not in src_to_tgt[src_idx]:
-                    src_to_tgt[src_idx].append(j)
-                if j not in tgt_to_src or src_idx not in tgt_to_src[j]:
-                    tgt_to_src[j].append(src_idx)
+            if best_j >= 0:
+                best_matches.append(best_j)
 
-    # Step 4: Direct cognate/number matching (catches proper nouns, numbers, shared words)
-    for i, sw in enumerate(src_clean):
+        for j in best_matches:
+            if j not in src_to_tgt[i]:
+                src_to_tgt[i].append(j)
+            if i not in tgt_to_src[j]:
+                tgt_to_src[j].append(i)
+            tgt_used.add(j)
+
+    # Step 3: Direct cognate/number/proper noun matching
+    for i, sw in enumerate(clean_src):
         if len(sw) < 2:
             continue
-        for j, tw in enumerate([w.lower().strip(".,;:!?\"'()[]{}") for w in tgt_words]):
-            if sw == tw and j not in src_to_tgt.get(i, []):
+        for j, tc in enumerate(tgt_clean):
+            if sw == tc and j not in src_to_tgt[i]:
                 src_to_tgt[i].append(j)
                 tgt_to_src[j].append(i)
+
+    # Step 4: Handle unmatched target words — try reverse (translate target→source, match)
+    unmatched_tgt = [j for j in range(len(tgt_words)) if not tgt_to_src[j]]
+    if unmatched_tgt:
+        rev_dir = "en-de" if direction == "de-en" else "de-en"
+        rev_tok, rev_model, _, _ = get_models(rev_dir)
+        unmatched_words = [_clean(tgt_words[j]) for j in unmatched_tgt]
+        if unmatched_words:
+            rev_inputs = rev_tok(unmatched_words, return_tensors="pt", padding=True, truncation=True)
+            with torch.no_grad():
+                rev_outputs = rev_model.generate(**rev_inputs, num_beams=4, max_length=64)
+            for idx, j in enumerate(unmatched_tgt):
+                rev_trans = rev_tok.decode(rev_outputs[idx], skip_special_tokens=True).lower()
+                rev_words = rev_trans.split()
+                best_i = -1
+                best_score = 0.5
+                for rw in rev_words:
+                    rw_clean = _clean(rw)
+                    for i, sc in enumerate(clean_src):
+                        score = 1.0 if rw_clean == sc else difflib.SequenceMatcher(None, rw_clean, sc).ratio()
+                        if score > best_score:
+                            best_score = score
+                            best_i = i
+                if best_i >= 0:
+                    if j not in src_to_tgt[best_i]:
+                        src_to_tgt[best_i].append(j)
+                    if best_i not in tgt_to_src[j]:
+                        tgt_to_src[j].append(best_i)
 
     # Deduplicate and sort
     for k in src_to_tgt:
@@ -1695,6 +1745,21 @@ document.addEventListener('click', function(e) {
 // Ctrl+Enter to translate
 document.getElementById('source').addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doTranslate(); }
+});
+
+// Fix pasted text: normalize Unicode (decomposed → composed)
+// This fixes umlauts like ü appearing as u + combining diaeresis
+document.getElementById('source').addEventListener('paste', function(e) {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    // NFC normalization: combines decomposed characters (u + ̈ → ü)
+    const normalized = text.normalize('NFC');
+    const ta = this;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, start) + normalized + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = start + normalized.length;
+    updateCharCount();
 });
 </script>
 </body>
