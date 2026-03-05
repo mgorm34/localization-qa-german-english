@@ -1,0 +1,338 @@
+[
+  {
+    "source": "Verordnung",
+    "preferred": "regulation",
+    "alternatives": ["ordinance", "decree", "statutory order"],
+    "avoid": ["law (too general)", "act (legislative term)"],
+    "context": "EU regulations, German statutory regulations (e.g., DSGVO, PSD2-Verordnung)",
+    "confidence": 0.95
+  },
+  {
+    "source": "Richtlinie",
+    "preferred": "directive",
+    "alternatives": ["EU directive", "guideline"],
+    "avoid": ["regulation (specific term)", "rule (too vague)"],
+    "context": "EU directives requiring transposition into national law (e.g., UCPD, PSD2)",
+    "confidence": 0.95
+  },
+  {
+    "source": "Genehmigung",
+    "preferred": "permit",
+    "alternatives": ["approval", "authorization", "license"],
+    "avoid": ["permission (too informal)", "consent (different concept)"],
+    "context": "Administrative authorization required for regulated activities",
+    "confidence": 0.92
+  },
+  {
+    "source": "Datenschutz",
+    "preferred": "data protection",
+    "alternatives": ["privacy protection", "data privacy"],
+    "avoid": ["data security (technical focus)", "privacy (broader concept)"],
+    "context": "Personal data protection under GDPR and DSGVO",
+    "confidence": 0.95
+  },
+  {
+    "source": "Aufsichtsbehörde",
+    "preferred": "supervisory authority",
+    "alternatives": ["regulatory authority", "supervisory body", "competent authority"],
+    "avoid": ["inspector (too narrow)", "oversight agency (too vague)"],
+    "context": "Government bodies exercising regulatory oversight (e.g., data protection authorities, financial regulators)",
+    "confidence": 0.93
+  },
+  {
+    "source": "Meldepflicht",
+    "preferred": "reporting obligation",
+    "alternatives": ["notification requirement", "disclosure obligation"],
+    "avoid": ["reporting duty (less precise)", "filing requirement (too narrow)"],
+    "context": "Legal requirement to report events or data to authorities",
+    "confidence": 0.92
+  },
+  {
+    "source": "Sorgfaltspflicht",
+    "preferred": "due diligence",
+    "alternatives": ["duty of care", "diligence obligation"],
+    "avoid": ["diligence (incomplete)", "prudence (different meaning)"],
+    "context": "Legal obligation to exercise reasonable care and investigation, especially in AML/KYC",
+    "confidence": 0.93
+  },
+  {
+    "source": "Rechtsvorschrift",
+    "preferred": "legal provision",
+    "alternatives": ["legal requirement", "statutory provision", "legal rule"],
+    "avoid": ["law (too broad)", "regulation (too narrow)"],
+    "context": "Any binding legal rule or requirement in statutes, regulations, or directives",
+    "confidence": 0.91
+  },
+  {
+    "source": "Bußgeld",
+    "preferred": "fine",
+    "alternatives": ["administrative penalty", "monetary penalty", "sanction"],
+    "avoid": ["penalty (too general)", "punishment (criminal term)"],
+    "context": "Monetary penalties for administrative violations or regulatory breaches",
+    "confidence": 0.92
+  },
+  {
+    "source": "Datenschutzverletzung",
+    "preferred": "data breach",
+    "alternatives": ["personal data breach", "data protection violation"],
+    "avoid": ["privacy violation (broader)", "data violation (too vague)"],
+    "context": "Unauthorized access, disclosure, or loss of personal data",
+    "confidence": 0.94
+  },
+  {
+    "source": "Betroffener",
+    "preferred": "data subject",
+    "alternatives": ["individual", "natural person"],
+    "avoid": ["person (too general)", "complainant (different context)"],
+    "context": "Individual to whom personal data relates under GDPR/DSGVO",
+    "confidence": 0.93
+  },
+  {
+    "source": "Verantwortlicher",
+    "preferred": "controller",
+    "alternatives": ["data controller"],
+    "avoid": ["responsible party (too vague)", "manager (too broad)"],
+    "context": "Entity that determines purposes and means of personal data processing under GDPR",
+    "confidence": 0.94
+  },
+  {
+    "source": "Auftragsverarbeiter",
+    "preferred": "processor",
+    "alternatives": ["data processor"],
+    "avoid": ["processor (without 'data' prefix in GDPR context)", "agent (different meaning)"],
+    "context": "Entity processing data on behalf of a controller under GDPR",
+    "confidence": 0.94
+  },
+  {
+    "source": "Verarbeitung",
+    "preferred": "processing",
+    "alternatives": ["data processing", "processing of data"],
+    "avoid": ["handling (too informal)", "operation (too vague)"],
+    "context": "Any operation performed on personal data (collection, use, analysis, etc.)",
+    "confidence": 0.94
+  },
+  {
+    "source": "Einwilligung",
+    "preferred": "consent",
+    "alternatives": ["explicit consent", "informed consent"],
+    "avoid": ["permission (informal)", "approval (different concept)"],
+    "context": "Legal basis for data processing under GDPR Article 6(1)(a)",
+    "confidence": 0.93
+  },
+  {
+    "source": "Rechtsanspruch",
+    "preferred": "legal right",
+    "alternatives": ["right", "legal entitlement"],
+    "avoid": ["claim (broader concept)", "privilege (different meaning)"],
+    "context": "Legal entitlement or claim recognized by law",
+    "confidence": 0.91
+  },
+  {
+    "source": "Verwaltungsverfahren",
+    "preferred": "administrative procedure",
+    "alternatives": ["administrative process", "regulatory procedure"],
+    "avoid": ["procedure (too general)", "process (vague)"],
+    "context": "Formal legal process followed by government agencies in administrative law",
+    "confidence": 0.91
+  },
+  {
+    "source": "Ermessen",
+    "preferred": "discretion",
+    "alternatives": ["administrative discretion", "discretionary authority"],
+    "avoid": ["discretionary power (redundant)", "judgment (too vague)"],
+    "context": "Authority of government officials to make decisions within legal bounds",
+    "confidence": 0.91
+  },
+  {
+    "source": "Beschwerde",
+    "preferred": "complaint",
+    "alternatives": ["administrative complaint", "grievance"],
+    "avoid": ["protest (too informal)", "objection (narrower concept)"],
+    "context": "Formal challenge to administrative decisions",
+    "confidence": 0.90
+  },
+  {
+    "source": "Widerspruch",
+    "preferred": "objection",
+    "alternatives": ["administrative objection", "appeal"],
+    "avoid": ["complaint (different stage)", "protest (informal)"],
+    "context": "Formal challenge to administrative actions before court proceedings",
+    "confidence": 0.90
+  },
+  {
+    "source": "Ermittlung",
+    "preferred": "investigation",
+    "alternatives": ["regulatory investigation", "inquiry"],
+    "avoid": ["inspection (narrower)", "examination (different context)"],
+    "context": "Official inquiry into potential regulatory violations or misconduct",
+    "confidence": 0.91
+  },
+  {
+    "source": "Prüfung",
+    "preferred": "audit",
+    "alternatives": ["inspection", "examination", "review"],
+    "avoid": ["investigation (different purpose)", "test (too narrow)"],
+    "context": "Systematic review of compliance, records, or operations",
+    "confidence": 0.90
+  },
+  {
+    "source": "Umweltschutz",
+    "preferred": "environmental protection",
+    "alternatives": ["environmental compliance", "environmental regulations"],
+    "avoid": ["ecology (broader)", "conservation (narrower)"],
+    "context": "Legal frameworks protecting environment from pollution and damage",
+    "confidence": 0.92
+  },
+  {
+    "source": "Emissionshandel",
+    "preferred": "emissions trading",
+    "alternatives": ["cap-and-trade system", "carbon trading", "ETS (emissions trading system)"],
+    "avoid": ["emissions control (broader)", "pollution trading (colloquial)"],
+    "context": "EU market mechanism for trading carbon allowances (EU ETS)",
+    "confidence": 0.93
+  },
+  {
+    "source": "Kreditinstitut",
+    "preferred": "credit institution",
+    "alternatives": ["bank", "financial institution", "banking institution"],
+    "avoid": ["lender (too narrow)", "financial service provider (broader)"],
+    "context": "Banks and entities authorized to take deposits and grant credit under PSD2",
+    "confidence": 0.92
+  },
+  {
+    "source": "Zahlungsdienst",
+    "preferred": "payment service",
+    "alternatives": ["payment service provider", "PSP"],
+    "avoid": ["payment (too general)", "transaction service (too vague)"],
+    "context": "Financial services related to payment transactions under PSD2",
+    "confidence": 0.91
+  },
+  {
+    "source": "Kapitaladäquanz",
+    "preferred": "capital adequacy",
+    "alternatives": ["capital requirements", "capital ratio"],
+    "avoid": ["capital (too general)", "adequacy (standalone)"],
+    "context": "Minimum capital requirements for banks under CRR/CRD regulations",
+    "confidence": 0.92
+  },
+  {
+    "source": "Basistaxonomie",
+    "preferred": "taxonomy",
+    "alternatives": ["EU taxonomy", "sustainable finance taxonomy"],
+    "avoid": ["classification system (too general)", "framework (vague)"],
+    "context": "EU classification system for sustainable economic activities",
+    "confidence": 0.90
+  },
+  {
+    "source": "Offenlegung",
+    "preferred": "disclosure",
+    "alternatives": ["disclosure requirement", "public disclosure"],
+    "avoid": ["revelation (too informal)", "transparency (broader concept)"],
+    "context": "Legal requirement to publish or reveal information to authorities or public",
+    "confidence": 0.93
+  },
+  {
+    "source": "Transparenzanforderung",
+    "preferred": "transparency requirement",
+    "alternatives": ["disclosure requirement", "transparency obligation"],
+    "avoid": ["disclosure (narrower concept)", "transparency (too broad)"],
+    "context": "Regulatory mandates for clear and accessible information",
+    "confidence": 0.91
+  },
+  {
+    "source": "Interessenkonflikt",
+    "preferred": "conflict of interest",
+    "alternatives": ["potential conflict of interest"],
+    "avoid": ["conflict (too general)", "interest conflict (awkward phrasing)"],
+    "context": "Situation where personal interests may bias professional judgment",
+    "confidence": 0.93
+  },
+  {
+    "source": "Kartell",
+    "preferred": "cartel",
+    "alternatives": ["anticompetitive agreement", "anti-competitive arrangement"],
+    "avoid": ["agreement (too vague)", "competition violation (broader)"],
+    "context": "Illegal anticompetitive arrangements between competitors under EU competition law",
+    "confidence": 0.93
+  },
+  {
+    "source": "Missbrauch",
+    "preferred": "abuse",
+    "alternatives": ["abuse of dominance", "exploitative conduct"],
+    "avoid": ["misuse (too general)", "violation (broader term)"],
+    "context": "Anticompetitive conduct by dominant firms under Article 102 TFEU",
+    "confidence": 0.91
+  },
+  {
+    "source": "Geldwäscherei",
+    "preferred": "money laundering",
+    "alternatives": ["ML", "money washing (informal)"],
+    "avoid": ["financial crime (broader)", "fraud (different crime)"],
+    "context": "Criminal process of disguising proceeds from illegal activities",
+    "confidence": 0.94
+  },
+  {
+    "source": "Bekämpfung der Geldwäscherei",
+    "preferred": "anti-money laundering",
+    "alternatives": ["AML", "money laundering prevention"],
+    "avoid": ["anti-laundering (incomplete)", "ML prevention (vague)"],
+    "context": "Regulatory measures and compliance frameworks to prevent money laundering",
+    "confidence": 0.93
+  },
+  {
+    "source": "Sanktionsliste",
+    "preferred": "sanctions list",
+    "alternatives": ["sanctions screening list", "restricted party list", "SDN list"],
+    "avoid": ["blacklist (outdated term)", "restricted list (vague)"],
+    "context": "List of persons/entities subject to economic sanctions or restrictions",
+    "confidence": 0.92
+  },
+  {
+    "source": "Rechtsform",
+    "preferred": "legal form",
+    "alternatives": ["entity type", "corporate form"],
+    "avoid": ["structure (too vague)", "type (incomplete)"],
+    "context": "Organizational structure of a business (e.g., GmbH, AG, Partnerschaft)",
+    "confidence": 0.91
+  },
+  {
+    "source": "Handelsregister",
+    "preferred": "commercial register",
+    "alternatives": ["trade register", "business register", "commercial registry"],
+    "avoid": ["business registry (too broad)", "record (vague)"],
+    "context": "German public registry of business entities and their legal information",
+    "confidence": 0.92
+  },
+  {
+    "source": "Betriebsstättenprinzip",
+    "preferred": "place of business principle",
+    "alternatives": ["establishment principle"],
+    "avoid": ["business principle (vague)", "location rule (too general)"],
+    "context": "Regulatory principle that jurisdiction follows business establishment location",
+    "confidence": 0.89
+  },
+  {
+    "source": "Bestandsdaten",
+    "preferred": "subscriber data",
+    "alternatives": ["customer data", "account holder information"],
+    "avoid": ["personal data (broader)", "account data (too vague)"],
+    "context": "Identifying information of telecommunication/service subscriber or account holder",
+    "confidence": 0.90
+  },
+  {
+    "source": "Verkehrsdaten",
+    "preferred": "traffic data",
+    "alternatives": ["communications data", "metadata"],
+    "avoid": ["personal data (broader)", "logging data (too narrow)"],
+    "context": "Data about communications (calls, messages) without content under ePrivacy Directive",
+    "confidence": 0.91
+  },
+  {
+    "source": "Rechtmäßigkeit",
+    "preferred": "lawfulness",
+    "alternatives": ["legality", "legal validity"],
+    "avoid": ["legality (synonymous but less common in EU context)", "validity (broader)"],
+    "context": "Compliance with legal requirements and standards in GDPR and administrative law",
+    "confidence": 0.91
+  }
+]

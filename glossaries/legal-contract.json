@@ -1,0 +1,458 @@
+[
+  {
+    "source": "Vertrag",
+    "preferred": "contract",
+    "alternatives": ["agreement", "agreement between parties"],
+    "avoid": ["deal", "pact"],
+    "context": "Legal binding agreement between parties",
+    "confidence": 0.95
+  },
+  {
+    "source": "Haftung",
+    "preferred": "liability",
+    "alternatives": ["legal responsibility", "obligation to answer"],
+    "avoid": ["fault", "blame"],
+    "context": "Legal responsibility for damages or losses",
+    "confidence": 0.95
+  },
+  {
+    "source": "Gewährleistung",
+    "preferred": "warranty",
+    "alternatives": ["guarantee", "representation"],
+    "avoid": ["promise", "pledge"],
+    "context": "Assurance regarding quality, title, or performance",
+    "confidence": 0.92
+  },
+  {
+    "source": "Kündigung",
+    "preferred": "termination",
+    "alternatives": ["notice of termination", "cancellation"],
+    "avoid": ["firing", "dismissal"],
+    "context": "Formal notice to end a contract or employment",
+    "confidence": 0.93
+  },
+  {
+    "source": "Schadensersatz",
+    "preferred": "damages",
+    "alternatives": ["compensation", "indemnification"],
+    "avoid": ["harm", "injury"],
+    "context": "Money compensation for loss or injury caused by breach",
+    "confidence": 0.94
+  },
+  {
+    "source": "Vertragspartei",
+    "preferred": "contracting party",
+    "alternatives": ["party to the contract", "party"],
+    "avoid": ["side", "participant"],
+    "context": "One of the entities entering into a contract",
+    "confidence": 0.93
+  },
+  {
+    "source": "Erfüllung",
+    "preferred": "performance",
+    "alternatives": ["fulfillment", "completion"],
+    "avoid": ["execution", "doing"],
+    "context": "Completion of contractual obligations",
+    "confidence": 0.91
+  },
+  {
+    "source": "Verzug",
+    "preferred": "default",
+    "alternatives": ["delay", "breach of duty"],
+    "avoid": ["absence", "lateness"],
+    "context": "Failure to perform obligation within agreed timeframe",
+    "confidence": 0.90
+  },
+  {
+    "source": "Gerichtsstand",
+    "preferred": "jurisdiction",
+    "alternatives": ["venue", "place of jurisdiction"],
+    "avoid": ["court location", "legal seat"],
+    "context": "Authority of a court to hear and decide a case",
+    "confidence": 0.92
+  },
+  {
+    "source": "Schiedsverfahren",
+    "preferred": "arbitration",
+    "alternatives": ["arbitral proceeding", "arbitral process"],
+    "avoid": ["mediation", "negotiation"],
+    "context": "Alternative dispute resolution by independent arbitrator",
+    "confidence": 0.93
+  },
+  {
+    "source": "höhere Gewalt",
+    "preferred": "force majeure",
+    "alternatives": ["act of God", "unforeseeable event"],
+    "avoid": ["higher power", "superior force"],
+    "context": "Unforeseen circumstances beyond party control",
+    "confidence": 0.93
+  },
+  {
+    "source": "Gegenseitige Verpflichtung",
+    "preferred": "mutual obligation",
+    "alternatives": ["reciprocal duty", "bilateral obligation"],
+    "avoid": ["shared responsibility", "common duty"],
+    "context": "Duty owed by both parties to each other",
+    "confidence": 0.91
+  },
+  {
+    "source": "Bedingung",
+    "preferred": "condition",
+    "alternatives": ["term", "provision"],
+    "avoid": ["requirement", "stipulation"],
+    "context": "Circumstance that must occur for obligation to arise",
+    "confidence": 0.90
+  },
+  {
+    "source": "Vorbehalt",
+    "preferred": "reservation",
+    "alternatives": ["proviso", "caveat"],
+    "avoid": ["withholding", "retention"],
+    "context": "Exception or qualification to a contractual provision",
+    "confidence": 0.89
+  },
+  {
+    "source": "Ausgleich",
+    "preferred": "settlement",
+    "alternatives": ["compensation", "adjustment"],
+    "avoid": ["balance", "equalization"],
+    "context": "Agreement to resolve dispute or outstanding obligations",
+    "confidence": 0.88
+  },
+  {
+    "source": "Verzicht",
+    "preferred": "waiver",
+    "alternatives": ["renunciation", "relinquishment"],
+    "avoid": ["giving up", "forfeiture"],
+    "context": "Intentional relinquishment of a known right",
+    "confidence": 0.92
+  },
+  {
+    "source": "Entschädigung",
+    "preferred": "indemnification",
+    "alternatives": ["compensation", "damages"],
+    "avoid": ["reimbursement", "repayment"],
+    "context": "Compensation for loss or damage incurred",
+    "confidence": 0.91
+  },
+  {
+    "source": "Geltungsbereich",
+    "preferred": "scope of application",
+    "alternatives": ["scope", "applicability"],
+    "avoid": ["range", "validity range"],
+    "context": "Extent and limits of contract application",
+    "confidence": 0.89
+  },
+  {
+    "source": "Verbindlichkeit",
+    "preferred": "binding force",
+    "alternatives": ["enforceability", "validity"],
+    "avoid": ["obligation", "liability"],
+    "context": "Legal effect and enforceability of contract",
+    "confidence": 0.90
+  },
+  {
+    "source": "Rechtsgültigkeit",
+    "preferred": "legal validity",
+    "alternatives": ["validity", "legal force"],
+    "avoid": ["correctness", "legitimacy"],
+    "context": "Compliance with legal requirements for enforceability",
+    "confidence": 0.91
+  },
+  {
+    "source": "Nichtigkeit",
+    "preferred": "invalidity",
+    "alternatives": ["voidness", "nullity"],
+    "avoid": ["emptiness", "insignificance"],
+    "context": "Absence of legal effect from inception",
+    "confidence": 0.93
+  },
+  {
+    "source": "Anfechtung",
+    "preferred": "avoidance",
+    "alternatives": ["challenge", "contestation"],
+    "avoid": ["cancellation", "objection"],
+    "context": "Right to attack validity of contract",
+    "confidence": 0.89
+  },
+  {
+    "source": "Rechtsverletzung",
+    "preferred": "violation of law",
+    "alternatives": ["legal breach", "infringement"],
+    "avoid": ["offense", "transgression"],
+    "context": "Breach of legal duty or statutory requirement",
+    "confidence": 0.90
+  },
+  {
+    "source": "Vertragsbruch",
+    "preferred": "breach of contract",
+    "alternatives": ["material breach", "non-performance"],
+    "avoid": ["violation", "infraction"],
+    "context": "Failure to fulfill contractual obligations",
+    "confidence": 0.95
+  },
+  {
+    "source": "Teilweise Erfüllung",
+    "preferred": "partial performance",
+    "alternatives": ["partial fulfillment", "substantial performance"],
+    "avoid": ["incomplete delivery", "partial payment"],
+    "context": "Completion of only some contractual obligations",
+    "confidence": 0.90
+  },
+  {
+    "source": "Rücktritt",
+    "preferred": "rescission",
+    "alternatives": ["withdrawal", "right to cancel"],
+    "avoid": ["retreat", "stepping back"],
+    "context": "Right to unwind contract and restore parties to prior position",
+    "confidence": 0.91
+  },
+  {
+    "source": "Fälligkeit",
+    "preferred": "maturity",
+    "alternatives": ["due date", "becoming due"],
+    "avoid": ["expiration", "deadline"],
+    "context": "Time when obligation becomes due and payable",
+    "confidence": 0.90
+  },
+  {
+    "source": "Zahlung",
+    "preferred": "payment",
+    "alternatives": ["consideration", "remuneration"],
+    "avoid": ["transfer", "delivery"],
+    "context": "Transfer of money as compensation or obligation fulfillment",
+    "confidence": 0.94
+  },
+  {
+    "source": "Gegenleistung",
+    "preferred": "consideration",
+    "alternatives": ["counter-performance", "quid pro quo"],
+    "avoid": ["payment", "compensation"],
+    "context": "Value exchanged between parties forming basis of contract",
+    "confidence": 0.92
+  },
+  {
+    "source": "Kaution",
+    "preferred": "security deposit",
+    "alternatives": ["pledge", "security"],
+    "avoid": ["bail", "bond"],
+    "context": "Money held as guarantee of contract performance",
+    "confidence": 0.89
+  },
+  {
+    "source": "Bürgschaft",
+    "preferred": "guarantee",
+    "alternatives": ["surety", "guaranty"],
+    "avoid": ["security", "pledge"],
+    "context": "Undertaking by third party to answer for another's debt",
+    "confidence": 0.91
+  },
+  {
+    "source": "Pfandrecht",
+    "preferred": "lien",
+    "alternatives": ["security interest", "pledge"],
+    "avoid": ["right to hold", "seizure right"],
+    "context": "Right to hold property as security for debt",
+    "confidence": 0.90
+  },
+  {
+    "source": "Ermessensspielraum",
+    "preferred": "discretion",
+    "alternatives": ["discretionary power", "right of discretion"],
+    "avoid": ["freedom", "leeway"],
+    "context": "Freedom to act according to one's judgment within limits",
+    "confidence": 0.88
+  },
+  {
+    "source": "Beweislast",
+    "preferred": "burden of proof",
+    "alternatives": ["onus of proof", "weight of evidence"],
+    "avoid": ["evidence burden", "proof weight"],
+    "context": "Obligation to prove disputed facts in legal proceeding",
+    "confidence": 0.92
+  },
+  {
+    "source": "Verjährung",
+    "preferred": "limitation of action",
+    "alternatives": ["statute of limitations", "prescriptive period"],
+    "avoid": ["expiration", "time limit"],
+    "context": "Period after which legal claim cannot be enforced",
+    "confidence": 0.93
+  },
+  {
+    "source": "Salvatorische Klausel",
+    "preferred": "severability clause",
+    "alternatives": ["savings clause", "severability provision"],
+    "avoid": ["saving clause", "protective clause"],
+    "context": "Clause ensuring contract remains valid if part is invalid",
+    "confidence": 0.91
+  },
+  {
+    "source": "Vertragsänderung",
+    "preferred": "contract modification",
+    "alternatives": ["amendment", "alteration of terms"],
+    "avoid": ["change", "adjustment"],
+    "context": "Mutual agreement to alter existing contractual terms",
+    "confidence": 0.90
+  },
+  {
+    "source": "Abtretung",
+    "preferred": "assignment",
+    "alternatives": ["transfer of rights", "cession"],
+    "avoid": ["delegation", "subcontracting"],
+    "context": "Transfer of contractual rights to third party",
+    "confidence": 0.92
+  },
+  {
+    "source": "Schuld",
+    "preferred": "debt",
+    "alternatives": ["obligation", "liability"],
+    "avoid": ["fault", "blame"],
+    "context": "Legal obligation to pay money or perform act",
+    "confidence": 0.93
+  },
+  {
+    "source": "Schuldner",
+    "preferred": "debtor",
+    "alternatives": ["obligor", "party owing obligation"],
+    "avoid": ["borrower", "defaulter"],
+    "context": "Party owing duty or obligation",
+    "confidence": 0.93
+  },
+  {
+    "source": "Gläubiger",
+    "preferred": "creditor",
+    "alternatives": ["obligee", "beneficiary"],
+    "avoid": ["lender", "claimant"],
+    "context": "Party entitled to enforce obligation",
+    "confidence": 0.93
+  },
+  {
+    "source": "Mangel",
+    "preferred": "defect",
+    "alternatives": ["deficiency", "non-conformity"],
+    "avoid": ["fault", "failure"],
+    "context": "Deviation from contract specifications or quality",
+    "confidence": 0.91
+  },
+  {
+    "source": "Gewährleistungsfrist",
+    "preferred": "warranty period",
+    "alternatives": ["guarantee period", "period of warranty"],
+    "avoid": ["warranty time", "guarantee duration"],
+    "context": "Time during which warranty protection is available",
+    "confidence": 0.90
+  },
+  {
+    "source": "Mängelhaftung",
+    "preferred": "warranty liability",
+    "alternatives": ["liability for defects", "non-conformity liability"],
+    "avoid": ["defect liability", "fault liability"],
+    "context": "Responsibility for defects in goods or services",
+    "confidence": 0.90
+  },
+  {
+    "source": "Gewährleistungsausschluss",
+    "preferred": "warranty disclaimer",
+    "alternatives": ["exclusion of warranty", "warranty waiver"],
+    "avoid": ["warranty denial", "guarantee refusal"],
+    "context": "Contractual provision limiting or excluding warranties",
+    "confidence": 0.91
+  },
+  {
+    "source": "Haftungsausschluss",
+    "preferred": "liability limitation",
+    "alternatives": ["exclusion of liability", "limitation clause"],
+    "avoid": ["responsibility denial", "obligation waiver"],
+    "context": "Clause restricting or eliminating liability exposure",
+    "confidence": 0.93
+  },
+  {
+    "source": "Indemnität",
+    "preferred": "indemnity",
+    "alternatives": ["indemnification", "security against loss"],
+    "avoid": ["compensation", "damages"],
+    "context": "Obligation to compensate for loss or damage",
+    "confidence": 0.90
+  },
+  {
+    "source": "Kostenerstattung",
+    "preferred": "cost reimbursement",
+    "alternatives": ["reimbursement of expenses", "cost recovery"],
+    "avoid": ["payment of costs", "expense sharing"],
+    "context": "Obligation to repay incurred costs or expenses",
+    "confidence": 0.91
+  },
+  {
+    "source": "Rechtsfolge",
+    "preferred": "legal consequence",
+    "alternatives": ["legal effect", "consequence of law"],
+    "avoid": ["result", "outcome"],
+    "context": "Legal effect resulting from contract or event",
+    "confidence": 0.89
+  },
+  {
+    "source": "Konfliktlösungsklausel",
+    "preferred": "dispute resolution clause",
+    "alternatives": ["dispute settlement clause", "resolution provision"],
+    "avoid": ["conflict clause", "dispute clause"],
+    "context": "Contractual procedure for resolving disagreements",
+    "confidence": 0.91
+  },
+  {
+    "source": "Schiedsrichter",
+    "preferred": "arbitrator",
+    "alternatives": ["arbiter", "neutral third party"],
+    "avoid": ["judge", "referee"],
+    "context": "Neutral person selected to resolve disputes",
+    "confidence": 0.93
+  },
+  {
+    "source": "Schiedsspruch",
+    "preferred": "arbitral award",
+    "alternatives": ["award", "decision of arbitrator"],
+    "avoid": ["judgment", "verdict"],
+    "context": "Decision rendered by arbitrator in dispute",
+    "confidence": 0.92
+  },
+  {
+    "source": "Anwendbares Recht",
+    "preferred": "governing law",
+    "alternatives": ["applicable law", "law governing"],
+    "avoid": ["jurisdiction", "legal system"],
+    "context": "System of law controlling contract interpretation and validity",
+    "confidence": 0.94
+  },
+  {
+    "source": "Erfüllungsort",
+    "preferred": "place of performance",
+    "alternatives": ["place of fulfillment", "performance location"],
+    "avoid": ["delivery location", "place of execution"],
+    "context": "Location where contractual obligation must be performed",
+    "confidence": 0.90
+  },
+  {
+    "source": "Erfüllungsfrist",
+    "preferred": "performance period",
+    "alternatives": ["time for performance", "deadline for fulfillment"],
+    "avoid": ["delivery time", "execution deadline"],
+    "context": "Time allowed for completing contractual obligation",
+    "confidence": 0.90
+  },
+  {
+    "source": "Vertragsstrafe",
+    "preferred": "penalty clause",
+    "alternatives": ["liquidated damages", "contractual penalty"],
+    "avoid": ["fine", "punishment"],
+    "context": "Predetermined compensation for breach of contract",
+    "confidence": 0.92
+  },
+  {
+    "source": "Verzugsersatz",
+    "preferred": "damages for delay",
+    "alternatives": ["damages for default", "delay damages"],
+    "avoid": ["delay compensation", "late payment charge"],
+    "context": "Compensation owed for failure to perform timely",
+    "confidence": 0.89
+  }
+]

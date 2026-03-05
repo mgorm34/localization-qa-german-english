@@ -1,0 +1,434 @@
+[
+  {
+    "source": "Patentanspruch",
+    "preferred": "patent claim",
+    "alternatives": ["claim"],
+    "avoid": ["patent requirement", "patent demand"],
+    "context": "The legally defining part of a patent specification that delineates the scope of protection",
+    "confidence": 0.95
+  },
+  {
+    "source": "Stand der Technik",
+    "preferred": "prior art",
+    "alternatives": ["state of the art", "existing technology"],
+    "avoid": ["technical state", "art form"],
+    "context": "All publicly available information that existed before the filing date of a patent application",
+    "confidence": 0.95
+  },
+  {
+    "source": "Patentamt",
+    "preferred": "patent office",
+    "alternatives": ["intellectual property office", "patent authority"],
+    "avoid": ["patent bureau", "patent agency"],
+    "context": "The government office responsible for granting and administering patents",
+    "confidence": 0.95
+  },
+  {
+    "source": "Erfindung",
+    "preferred": "invention",
+    "alternatives": ["innovative technology", "novel creation"],
+    "avoid": ["discovery", "creation"],
+    "context": "A novel and non-obvious solution to a technical problem",
+    "confidence": 0.95
+  },
+  {
+    "source": "Patentverletzung",
+    "preferred": "patent infringement",
+    "alternatives": ["infringement", "patent violation"],
+    "avoid": ["patent breach", "patent violation"],
+    "context": "Unauthorized use of a patented invention within the patent's territorial scope",
+    "confidence": 0.95
+  },
+  {
+    "source": "Gebrauchsmuster",
+    "preferred": "utility model",
+    "alternatives": ["design patent", "industrial design"],
+    "avoid": ["utility patent", "design model"],
+    "context": "A form of intellectual property protection for technical innovations with lower requirements than patents",
+    "confidence": 0.92
+  },
+  {
+    "source": "Offenlegungsschrift",
+    "preferred": "published patent application",
+    "alternatives": ["publication", "laid-open patent application"],
+    "avoid": ["disclosure document", "official document"],
+    "context": "The public disclosure of a patent application by the patent office",
+    "confidence": 0.93
+  },
+  {
+    "source": "Erteilung",
+    "preferred": "grant",
+    "alternatives": ["issuance", "awarding"],
+    "avoid": ["granting", "permission"],
+    "context": "The official conferral of patent rights by the patent office",
+    "confidence": 0.94
+  },
+  {
+    "source": "Einspruch",
+    "preferred": "opposition",
+    "alternatives": ["objection", "protest"],
+    "avoid": ["appeal", "complaint"],
+    "context": "A legal procedure to challenge the validity of a granted patent before the patent office",
+    "confidence": 0.93
+  },
+  {
+    "source": "Anmelder",
+    "preferred": "applicant",
+    "alternatives": ["inventor", "patent applicant"],
+    "avoid": ["applicator", "registrant"],
+    "context": "The person or entity who files and seeks a patent application",
+    "confidence": 0.95
+  },
+  {
+    "source": "Patentinhaber",
+    "preferred": "patent holder",
+    "alternatives": ["patent owner", "patentee"],
+    "avoid": ["patent applicant", "patent user"],
+    "context": "The legal person who owns and holds the rights to an issued patent",
+    "confidence": 0.95
+  },
+  {
+    "source": "Patentschutz",
+    "preferred": "patent protection",
+    "alternatives": ["patented status", "patent rights"],
+    "avoid": ["patent immunity", "patent security"],
+    "context": "The legal monopoly granted to an inventor over their patented technology",
+    "confidence": 0.94
+  },
+  {
+    "source": "Anmeldung",
+    "preferred": "patent application",
+    "alternatives": ["filing", "application"],
+    "avoid": ["registration", "submission"],
+    "context": "A formal request to a patent office to grant patent rights for an invention",
+    "confidence": 0.95
+  },
+  {
+    "source": "Priorität",
+    "preferred": "priority",
+    "alternatives": ["priority date", "filing priority"],
+    "avoid": ["precedence", "priority right"],
+    "context": "The right to claim an earlier filing date based on a prior application in another country",
+    "confidence": 0.94
+  },
+  {
+    "source": "Prioritätstag",
+    "preferred": "priority date",
+    "alternatives": ["priority filing date", "earliest filing date"],
+    "avoid": ["priority time", "application date"],
+    "context": "The date from which patent rights are deemed to commence",
+    "confidence": 0.94
+  },
+  {
+    "source": "Anspruchsbereich",
+    "preferred": "scope of claims",
+    "alternatives": ["claim scope", "claim range"],
+    "avoid": ["claim area", "patent extent"],
+    "context": "The extent and breadth of the technical territory protected by patent claims",
+    "confidence": 0.91
+  },
+  {
+    "source": "Patentgebühren",
+    "preferred": "patent fees",
+    "alternatives": ["filing fees", "maintenance fees"],
+    "avoid": ["patent tax", "patent charges"],
+    "context": "Monetary payments required to file, examine, and maintain a patent",
+    "confidence": 0.94
+  },
+  {
+    "source": "Patentprüfer",
+    "preferred": "patent examiner",
+    "alternatives": ["examiner", "patent officer"],
+    "avoid": ["patent inspector", "patent auditor"],
+    "context": "A qualified professional at a patent office who examines patent applications for patentability",
+    "confidence": 0.94
+  },
+  {
+    "source": "Nichtigkeitsbeschwerde",
+    "preferred": "nullity action",
+    "alternatives": ["invalidation action", "patent challenge"],
+    "avoid": ["nullification complaint", "cancellation request"],
+    "context": "A legal proceeding to revoke or declare a patent invalid",
+    "confidence": 0.90
+  },
+  {
+    "source": "Patentrecherche",
+    "preferred": "patent search",
+    "alternatives": ["patent examination search", "prior art search"],
+    "avoid": ["patent investigation", "patent inquiry"],
+    "context": "An investigation to identify existing patents and published applications related to an invention",
+    "confidence": 0.93
+  },
+  {
+    "source": "Zwangslizenz",
+    "preferred": "compulsory license",
+    "alternatives": ["statutory license", "mandatory license"],
+    "avoid": ["forced license", "required license"],
+    "context": "A license granted by a government authority to use a patented invention without the owner's consent",
+    "confidence": 0.91
+  },
+  {
+    "source": "Lizenzgebühr",
+    "preferred": "license fee",
+    "alternatives": ["royalty", "licensing fee"],
+    "avoid": ["patent fee", "usage payment"],
+    "context": "Payment made for permission to use a patented invention",
+    "confidence": 0.93
+  },
+  {
+    "source": "Lizenzvertrag",
+    "preferred": "license agreement",
+    "alternatives": ["licensing contract", "patent license"],
+    "avoid": ["permission agreement", "use contract"],
+    "context": "A legal contract granting rights to use a patented invention under specified terms",
+    "confidence": 0.94
+  },
+  {
+    "source": "Unteranmelder",
+    "preferred": "co-applicant",
+    "alternatives": ["joint applicant", "co-inventor"],
+    "avoid": ["sub-applicant", "secondary applicant"],
+    "context": "A person or entity jointly filing a patent application with other applicants",
+    "confidence": 0.91
+  },
+  {
+    "source": "Technisches Gebiet",
+    "preferred": "technical field",
+    "alternatives": ["field of technology", "technical area"],
+    "avoid": ["technical domain", "technical field"],
+    "context": "The category or classification of the technological area to which an invention relates",
+    "confidence": 0.92
+  },
+  {
+    "source": "Technischer Effekt",
+    "preferred": "technical effect",
+    "alternatives": ["technical result", "technical contribution"],
+    "avoid": ["technical consequence", "technical outcome"],
+    "context": "The practical technical advantage or improvement provided by an invention",
+    "confidence": 0.92
+  },
+  {
+    "source": "Patentdauer",
+    "preferred": "patent term",
+    "alternatives": ["patent validity period", "patent duration"],
+    "avoid": ["patent length", "patent period"],
+    "context": "The length of time during which a patent grants exclusive rights to its holder",
+    "confidence": 0.93
+  },
+  {
+    "source": "Patentablauf",
+    "preferred": "patent expiration",
+    "alternatives": ["patent termination", "patent lapse"],
+    "avoid": ["patent end", "patent conclusion"],
+    "context": "The date when a patent ceases to provide legal protection",
+    "confidence": 0.93
+  },
+  {
+    "source": "Abhängiger Anspruch",
+    "preferred": "dependent claim",
+    "alternatives": ["subordinate claim"],
+    "avoid": ["secondary claim", "supplementary claim"],
+    "context": "A patent claim that incorporates all limitations of another claim and adds further restrictions",
+    "confidence": 0.94
+  },
+  {
+    "source": "Unabhängiger Anspruch",
+    "preferred": "independent claim",
+    "alternatives": ["principal claim"],
+    "avoid": ["main claim", "primary claim"],
+    "context": "A patent claim that stands alone and does not reference other claims",
+    "confidence": 0.94
+  },
+  {
+    "source": "Patentbeschreibung",
+    "preferred": "patent specification",
+    "alternatives": ["specification", "patent document"],
+    "avoid": ["patent description", "patent details"],
+    "context": "The written technical document that describes the invention and supports the patent claims",
+    "confidence": 0.93
+  },
+  {
+    "source": "Patentzeichnungen",
+    "preferred": "patent drawings",
+    "alternatives": ["drawings", "patent figures"],
+    "avoid": ["patent diagrams", "patent sketches"],
+    "context": "Technical illustrations accompanying a patent specification to clarify the invention",
+    "confidence": 0.93
+  },
+  {
+    "source": "Widerspruch",
+    "preferred": "objection",
+    "alternatives": ["opposition", "challenge"],
+    "avoid": ["contradiction", "conflict"],
+    "context": "A formal statement of disagreement with a patent examiner's decision or an application's patentability",
+    "confidence": 0.90
+  },
+  {
+    "source": "Patentgebiet",
+    "preferred": "patent field",
+    "alternatives": ["field of invention", "technical field"],
+    "avoid": ["patent zone", "patent category"],
+    "context": "The specific technological area and classification of an invention",
+    "confidence": 0.91
+  },
+  {
+    "source": "Arbeitsergebnis",
+    "preferred": "work product",
+    "alternatives": ["invention", "technical result"],
+    "avoid": ["working result", "labor output"],
+    "context": "The tangible outcome or result of research and development that may be patentable",
+    "confidence": 0.88
+  },
+  {
+    "source": "Patentkonflikt",
+    "preferred": "patent dispute",
+    "alternatives": ["patent conflict", "patent controversy"],
+    "avoid": ["patent disagreement", "patent problem"],
+    "context": "A legal disagreement between parties regarding patent rights or validity",
+    "confidence": 0.92
+  },
+  {
+    "source": "Patentinfraktion",
+    "preferred": "patent infraction",
+    "alternatives": ["patent violation", "infringement"],
+    "avoid": ["patent breach", "patent transgression"],
+    "context": "An unauthorized act of using or exploiting a patented invention",
+    "confidence": 0.88
+  },
+  {
+    "source": "Schadensersatz",
+    "preferred": "damages",
+    "alternatives": ["monetary damages", "compensation"],
+    "avoid": ["restitution", "penalty"],
+    "context": "Compensation awarded to a patent holder for losses resulting from infringement",
+    "confidence": 0.92
+  },
+  {
+    "source": "Unterlassungsanspruch",
+    "preferred": "injunction",
+    "alternatives": ["injunctive relief", "cease-and-desist order"],
+    "avoid": ["prohibition", "restraint order"],
+    "context": "A court order requiring an infringer to stop using a patented invention",
+    "confidence": 0.92
+  },
+  {
+    "source": "Auslegung",
+    "preferred": "interpretation",
+    "alternatives": ["claim interpretation", "construction"],
+    "avoid": ["explanation", "definition"],
+    "context": "The process of determining the meaning and scope of patent claims in litigation",
+    "confidence": 0.91
+  },
+  {
+    "source": "Äquivalente",
+    "preferred": "equivalents",
+    "alternatives": ["doctrine of equivalents", "equivalent elements"],
+    "avoid": ["equivalence", "similar elements"],
+    "context": "Elements in an accused product that perform substantially the same function as claimed elements",
+    "confidence": 0.92
+  },
+  {
+    "source": "Patentzertifikat",
+    "preferred": "patent certificate",
+    "alternatives": ["patent document", "certificate of grant"],
+    "avoid": ["patent proof", "patent attestation"],
+    "context": "The official document issued by a patent office confirming grant of patent rights",
+    "confidence": 0.92
+  },
+  {
+    "source": "Prüfungsverfahren",
+    "preferred": "examination procedure",
+    "alternatives": ["patent examination", "prosecution"],
+    "avoid": ["testing procedure", "inspection process"],
+    "context": "The formal process by which a patent office evaluates a patent application for patentability",
+    "confidence": 0.93
+  },
+  {
+    "source": "Ermittlungsverfahren",
+    "preferred": "investigation procedure",
+    "alternatives": ["investigative process"],
+    "avoid": ["interrogation procedure", "discovery process"],
+    "context": "A formal inquiry or process to establish facts in patent proceedings",
+    "confidence": 0.87
+  },
+  {
+    "source": "Verlängerung",
+    "preferred": "renewal",
+    "alternatives": ["patent renewal", "extension"],
+    "avoid": ["prolongation", "continuation"],
+    "context": "The process of extending patent protection beyond the initial term through periodic payments",
+    "confidence": 0.92
+  },
+  {
+    "source": "Nichtigkeit",
+    "preferred": "invalidity",
+    "alternatives": ["patent invalidity", "unenforceability"],
+    "avoid": ["nullity", "voidness"],
+    "context": "The legal status of a patent that fails to meet statutory requirements and is unenforceable",
+    "confidence": 0.92
+  },
+  {
+    "source": "Ausnahmen",
+    "preferred": "exceptions",
+    "alternatives": ["statutory exceptions", "carve-outs"],
+    "avoid": ["exemptions", "exclusions"],
+    "context": "Specific circumstances or uses that fall outside the scope of patent protection",
+    "confidence": 0.90
+  },
+  {
+    "source": "Erfinder",
+    "preferred": "inventor",
+    "alternatives": ["patent inventor", "creator"],
+    "avoid": ["applicant", "patentee"],
+    "context": "The person who conceived the invention and is credited with its creation",
+    "confidence": 0.95
+  },
+  {
+    "source": "Gewerbliche Anwendbarkeit",
+    "preferred": "industrial applicability",
+    "alternatives": ["industrial application", "utility"],
+    "avoid": ["commercial viability", "practical use"],
+    "context": "The requirement that an invention is capable of industrial or commercial exploitation",
+    "confidence": 0.92
+  },
+  {
+    "source": "Neuheit",
+    "preferred": "novelty",
+    "alternatives": ["patent novelty", "newness"],
+    "avoid": ["originality", "innovation"],
+    "context": "The patentability requirement that an invention is new and not publicly disclosed before filing",
+    "confidence": 0.94
+  },
+  {
+    "source": "Erfinderische Tätigkeit",
+    "preferred": "inventive step",
+    "alternatives": ["non-obviousness", "inventiveness"],
+    "avoid": ["creative activity", "innovative effort"],
+    "context": "The requirement that an invention is not an obvious development of existing technology",
+    "confidence": 0.93
+  },
+  {
+    "source": "Beschreibungsmangel",
+    "preferred": "insufficient disclosure",
+    "alternatives": ["enablement failure", "written description defect"],
+    "avoid": ["description defect", "documentation failure"],
+    "context": "When patent documentation fails to adequately enable someone skilled in the art to make the invention",
+    "confidence": 0.90
+  },
+  {
+    "source": "Patentanwalt",
+    "preferred": "patent attorney",
+    "alternatives": ["patent counsel", "patent lawyer"],
+    "avoid": ["patent agent", "patent specialist"],
+    "context": "A qualified legal professional authorized to represent clients in patent matters",
+    "confidence": 0.93
+  },
+  {
+    "source": "Patentagent",
+    "preferred": "patent agent",
+    "alternatives": ["patent representative"],
+    "avoid": ["patent attorney", "patent lawyer"],
+    "context": "A non-lawyer professional authorized to represent clients in patent prosecution before the patent office",
+    "confidence": 0.92
+  }
+]
