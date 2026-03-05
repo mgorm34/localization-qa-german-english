@@ -8,3 +8,4 @@ spacy-transformers
 pdfplumber
 python-docx
 protobuf
+requests

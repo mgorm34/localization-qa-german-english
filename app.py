@@ -121,54 +121,81 @@ def translate_primary(text, direction="de-en"):
 
 def compute_word_alignment(source_text, translation_text, direction="de-en"):
     """
-    Build bidirectional word alignment between source and translation.
-    Returns {
-        "src_to_tgt": {0: [1,2], 1: [3], ...},
-        "tgt_to_src": {0: [], 1: [0], 2: [0], 3: [1], ...},
-        "src_glossary": {idx: {entry info}},
-        "tgt_glossary": {idx: {entry info}},
-    }
-    Uses difflib on back-translation alignment + direct token matching.
+    Build bidirectional word alignment using back-translation as a bridge.
+    1. Back-translate the target → get pseudo-source
+    2. Align pseudo-source tokens to original source tokens (same language, difflib works well)
+    3. Use positional correspondence: source[i] ↔ pseudo_source[k] ↔ target[k]
     """
     src_words = source_text.split()
     tgt_words = translation_text.split()
 
+    if not src_words or not tgt_words:
+        return {"src_to_tgt": {}, "tgt_to_src": {}}
+
     src_to_tgt = {i: [] for i in range(len(src_words))}
     tgt_to_src = {i: [] for i in range(len(tgt_words))}
 
-    # Strategy 1: Use difflib SequenceMatcher on lowercased tokens
-    # Back-translate to get an intermediate alignment anchor
-    src_lower = [w.lower().strip(".,;:!?\"'()[]{}") for w in src_words]
-    tgt_lower = [w.lower().strip(".,;:!?\"'()[]{}") for w in tgt_words]
+    # Step 1: Back-translate target to get pseudo-source (same language as source)
+    reverse_dir = "en-de" if direction == "de-en" else "de-en"
+    back_tok, back_model, _, _ = get_models(reverse_dir)
+    back_inputs = back_tok(translation_text, return_tensors="pt", padding=True, truncation=True)
+    with torch.no_grad():
+        back_out = back_model.generate(**back_inputs, num_beams=4, max_length=512)
+    pseudo_source = back_tok.decode(back_out[0], skip_special_tokens=True)
+    pseudo_words = pseudo_source.split()
 
-    # Direct token overlap (cognates, proper nouns, numbers)
-    for i, sw in enumerate(src_lower):
-        for j, tw in enumerate(tgt_lower):
-            if sw == tw and len(sw) > 2:
+    # Step 2: Align original source ↔ pseudo-source (same language — difflib is reliable)
+    src_clean = [w.lower().strip(".,;:!?\"'()[]{}") for w in src_words]
+    pseudo_clean = [w.lower().strip(".,;:!?\"'()[]{}") for w in pseudo_words]
+
+    # Map pseudo-source indices to original source indices
+    pseudo_to_src = {}
+    sm = difflib.SequenceMatcher(None, pseudo_clean, src_clean)
+    for op, p1, p2, s1, s2 in sm.get_opcodes():
+        if op == "equal":
+            for offset in range(p2 - p1):
+                pseudo_to_src[p1 + offset] = s1 + offset
+
+    # Step 3: Build target ↔ pseudo-source positional mapping
+    # Target and pseudo-source come from the same model pass, so they share rough
+    # positional correspondence. Use ratio mapping with a window.
+    if len(pseudo_words) > 0:
+        ratio_tp = len(pseudo_words) / len(tgt_words)
+        for j in range(len(tgt_words)):
+            # Estimate which pseudo-source word corresponds to target word j
+            p_est = min(int(j * ratio_tp), len(pseudo_words) - 1)
+            # Check window around estimate
+            best_p = p_est
+            best_score = -1
+            tgt_clean_j = tgt_words[j].lower().strip(".,;:!?\"'()[]{}")
+            for p in range(max(0, p_est - 3), min(len(pseudo_words), p_est + 4)):
+                # Prefer pseudo words that map to a source word
+                score = 1.0 if p in pseudo_to_src else 0.0
+                # Boost if pseudo word is similar to any source word nearby
+                if p in pseudo_to_src:
+                    si = pseudo_to_src[p]
+                    score += difflib.SequenceMatcher(None, src_clean[si], tgt_clean_j).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_p = p
+
+            if best_p in pseudo_to_src:
+                src_idx = pseudo_to_src[best_p]
+                if src_idx not in src_to_tgt or j not in src_to_tgt[src_idx]:
+                    src_to_tgt[src_idx].append(j)
+                if j not in tgt_to_src or src_idx not in tgt_to_src[j]:
+                    tgt_to_src[j].append(src_idx)
+
+    # Step 4: Direct cognate/number matching (catches proper nouns, numbers, shared words)
+    for i, sw in enumerate(src_clean):
+        if len(sw) < 2:
+            continue
+        for j, tw in enumerate([w.lower().strip(".,;:!?\"'()[]{}") for w in tgt_words]):
+            if sw == tw and j not in src_to_tgt.get(i, []):
                 src_to_tgt[i].append(j)
                 tgt_to_src[j].append(i)
 
-    # Strategy 2: Positional heuristic for unaligned words
-    # Map roughly by position ratio
-    if len(src_words) > 0 and len(tgt_words) > 0:
-        ratio = len(tgt_words) / len(src_words)
-        for i in range(len(src_words)):
-            if not src_to_tgt[i]:  # not yet aligned
-                j = min(int(i * ratio), len(tgt_words) - 1)
-                # Check a small window around the expected position
-                best_j = j
-                best_sim = 0
-                for k in range(max(0, j - 2), min(len(tgt_words), j + 3)):
-                    if not tgt_to_src[k]:  # prefer unaligned targets
-                        # Simple character overlap similarity
-                        sim = difflib.SequenceMatcher(None, src_lower[i], tgt_lower[k]).ratio()
-                        if sim > best_sim:
-                            best_sim = sim
-                            best_j = k
-                src_to_tgt[i].append(best_j)
-                tgt_to_src[best_j].append(i)
-
-    # Deduplicate
+    # Deduplicate and sort
     for k in src_to_tgt:
         src_to_tgt[k] = sorted(set(src_to_tgt[k]))
     for k in tgt_to_src:
@@ -703,6 +730,7 @@ def split_into_sentences(text):
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB upload limit
+app.config['JSON_AS_ASCII'] = False  # Allow UTF-8 in JSON responses (umlauts etc.)
 
 state = {
     "source": "",
