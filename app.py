@@ -259,21 +259,38 @@ def get_models(direction):
         return en_de_tok, en_de_model, de_en_tok, de_en_model
 
 
-def translate_with_beams(text, direction="de-en"):
-    """Translate and return (best, candidates, score_map)."""
+def translate_with_beams(text, direction="de-en", fast=False):
+    """Translate and return (best, candidates, score_map).
+    fast=True: single best translation, no candidates (for document mode).
+    """
     fwd_tok, fwd_model, _, _ = get_models(direction)
     inputs = fwd_tok(text, return_tensors="pt", padding=True, truncation=True)
+
+    if fast:
+        # Fast mode: minimal beams, 1 result — pure translation, no alternatives
+        with torch.no_grad():
+            outputs = fwd_model.generate(
+                **inputs,
+                num_beams=4,
+                num_return_sequences=1,
+                early_stopping=True,
+                max_length=512,
+            )
+        best = fwd_tok.decode(outputs[0], skip_special_tokens=True)
+        return best, [best], {best: 0}
+
+    # Normal mode: 2 passes, 8 beams, 5 sequences (was 4 passes × 30 beams × 20 seqs)
     candidates = []
     seen = set()
     score_map = {}
     global_rank = 0
-    for lp in [0.8, 1.0, 1.2, 1.5]:
+    for lp in [1.0, 1.2]:
         try:
             with torch.no_grad():
                 outputs = fwd_model.generate(
                     **inputs,
-                    num_beams=30,
-                    num_return_sequences=20,
+                    num_beams=8,
+                    num_return_sequences=5,
                     early_stopping=True,
                     max_length=512,
                     length_penalty=lp,
@@ -437,6 +454,39 @@ def compute_all_confidences(best, candidates, domain, direction, source_text):
     return confidences
 
 
+def glossary_post_process(translation, domain, direction="de-en"):
+    """Force-replace words in translation with glossary preferred terms.
+    If a word is in the 'avoid' list of any glossary entry, replace it with preferred.
+    """
+    if domain == "general" or not glossaries.get(domain):
+        return translation
+
+    words = translation.split()
+    result = []
+    for word in words:
+        clean = word.strip(".,;:!?\"'()[]{}").lower()
+        replaced = False
+        for entry in glossaries.get(domain, []):
+            avoid_lower = [a.lower() for a in entry.get("avoid", [])]
+            if clean in avoid_lower:
+                # Preserve surrounding punctuation
+                leading = ""
+                trailing = ""
+                stripped = word
+                while stripped and not stripped[0].isalnum():
+                    leading += stripped[0]
+                    stripped = stripped[1:]
+                while stripped and not stripped[-1].isalnum():
+                    trailing = stripped[-1] + trailing
+                    stripped = stripped[:-1]
+                result.append(leading + entry["preferred"] + trailing)
+                replaced = True
+                break
+        if not replaced:
+            result.append(word)
+    return " ".join(result)
+
+
 def constrain_and_retranslate(source_text, chosen_phrase, current_translation, direction="de-en"):
     fwd_tok, fwd_model, back_tok, back_model = get_models(direction)
     inputs = fwd_tok(source_text, return_tensors="pt", padding=True, truncation=True)
@@ -585,6 +635,7 @@ def api_translate():
         return jsonify({"error": "Text exceeds 10,000 character limit"}), 400
 
     best, candidates, score_map = translate_with_beams(source, direction)
+    best = glossary_post_process(best, domain, direction)
     alts = precompute_all_alternatives(best, candidates, score_map, domain)
     confidences = compute_all_confidences(best, candidates, domain, direction, source)
     ppl = score_perplexity(best)
@@ -664,15 +715,15 @@ def api_upload_document():
             results.append({"source": para, "translation": para, "words": para.split(),
                             "alternatives": {}, "confidences": {}})
             continue
-        best, cands, sm = translate_with_beams(para, direction)
-        alts = precompute_all_alternatives(best, cands, sm, domain)
-        confs = compute_all_confidences(best, cands, domain, direction, para)
+        # Fast mode: single translation, no alternatives or scoring
+        best, _, _ = translate_with_beams(para, direction, fast=True)
+        best = glossary_post_process(best, domain, direction)
         results.append({
             "source": para,
             "translation": best,
             "words": best.split(),
-            "alternatives": alts,
-            "confidences": confs,
+            "alternatives": {},
+            "confidences": {},
         })
 
     return jsonify({"paragraphs": results, "filename": f.filename})
