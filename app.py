@@ -103,12 +103,11 @@ def translate_deepl(text, direction="de-en"):
         return None
     src_lang, tgt_lang = DEEPL_LANG_MAP.get(direction, ("DE", "EN"))
     try:
-        resp = http_requests.post(DEEPL_URL, data={
-            "auth_key": DEEPL_API_KEY,
-            "text": text,
-            "source_lang": src_lang,
-            "target_lang": tgt_lang,
-        }, timeout=30)
+        resp = http_requests.post(DEEPL_URL,
+            headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={"text": [text], "source_lang": src_lang, "target_lang": tgt_lang},
+            timeout=30)
         if resp.status_code == 200:
             return resp.json()["translations"][0]["text"]
         else:
@@ -801,12 +800,11 @@ def api_test_deepl():
         result["error"] = "No API key"
         return jsonify(result)
     try:
-        resp = http_requests.post(DEEPL_URL, data={
-            "auth_key": DEEPL_API_KEY,
-            "text": "Hallo Welt",
-            "source_lang": "DE",
-            "target_lang": "EN",
-        }, timeout=15)
+        resp = http_requests.post(DEEPL_URL,
+            headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={"text": ["Hallo Welt"], "source_lang": "DE", "target_lang": "EN"},
+            timeout=15)
         result["status_code"] = resp.status_code
         result["response_body"] = resp.text[:500]
         if resp.status_code == 200:
