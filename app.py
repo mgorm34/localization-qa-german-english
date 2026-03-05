@@ -74,8 +74,20 @@ print(f"All models loaded ✓  (spaCy EN: {SPACY_MODEL})")
 # DEEPL API
 # ══════════════════════════════════════════════════════════════════════════════
 
-DEEPL_API_KEY = os.environ.get("DEEPL_API_KEY", "YOUR_KEY_HERE")
-DEEPL_URL = "https://api-free.deepl.com/v2/translate"
+DEEPL_API_KEY = os.environ.get("DEEPL_API_KEY", "").strip()
+# Use free API if key ends with :fx, otherwise use pro API
+if DEEPL_API_KEY.endswith(":fx"):
+    DEEPL_URL = "https://api-free.deepl.com/v2/translate"
+else:
+    DEEPL_URL = "https://api.deepl.com/v2/translate"
+
+if DEEPL_API_KEY and DEEPL_API_KEY != "YOUR_KEY_HERE":
+    print(f"DeepL API key found ({len(DEEPL_API_KEY)} chars, ending: ...{DEEPL_API_KEY[-4:]})")
+    print(f"DeepL endpoint: {DEEPL_URL}")
+else:
+    print("WARNING: No DeepL API key found. Will use MarianMT fallback.")
+    print(f"  Checked env var DEEPL_API_KEY = '{os.environ.get('DEEPL_API_KEY', '<not set>')}'")
+    print(f"  Set DEEPL_API_KEY environment variable or HuggingFace Space secret.")
 
 DEEPL_LANG_MAP = {
     "de-en": ("DE", "EN"),
@@ -85,7 +97,8 @@ DEEPL_LANG_MAP = {
 
 def translate_deepl(text, direction="de-en"):
     """Translate using DeepL API. Returns translated text or None on failure."""
-    if DEEPL_API_KEY == "YOUR_KEY_HERE":
+    if not DEEPL_API_KEY or DEEPL_API_KEY == "YOUR_KEY_HERE":
+        print("DeepL skipped: no API key")
         return None
     src_lang, tgt_lang = DEEPL_LANG_MAP.get(direction, ("DE", "EN"))
     try:
@@ -730,7 +743,14 @@ def split_into_sentences(text):
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB upload limit
-app.config['JSON_AS_ASCII'] = False  # Allow UTF-8 in JSON responses (umlauts etc.)
+# Allow UTF-8 in JSON responses (umlauts, special chars)
+try:
+    # Flask 3.x
+    app.json.ensure_ascii = False
+    app.json.mimetype = "application/json; charset=utf-8"
+except AttributeError:
+    # Flask 2.x fallback
+    app.config['JSON_AS_ASCII'] = False
 
 state = {
     "source": "",
@@ -745,7 +765,21 @@ state = {
 
 @app.route("/")
 def index():
-    return Response(HTML_PAGE, mimetype="text/html")
+    return Response(HTML_PAGE, mimetype="text/html; charset=utf-8")
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    """Debug endpoint: check engine status, encoding, etc."""
+    return jsonify({
+        "deepl_configured": bool(DEEPL_API_KEY and DEEPL_API_KEY != "YOUR_KEY_HERE"),
+        "deepl_key_length": len(DEEPL_API_KEY) if DEEPL_API_KEY else 0,
+        "deepl_key_suffix": DEEPL_API_KEY[-4:] if DEEPL_API_KEY and len(DEEPL_API_KEY) > 4 else "N/A",
+        "deepl_url": DEEPL_URL,
+        "spacy_model": SPACY_MODEL,
+        "glossary_counts": {d: len(glossaries.get(d, [])) for d in DOMAINS},
+        "encoding_test": "Ü Ö Ä ß ü ö ä",
+    })
 
 
 @app.route("/api/domains", methods=["GET"])
