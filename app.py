@@ -137,16 +137,134 @@ def _clean(w):
     return w.lower().strip(".,;:!?\"'()[]{}–—-/")
 
 
+# ── Common DE↔EN function-word map (high-confidence, hardcoded) ──────────
+_FUNC_DE_EN = {
+    "der": "the", "die": "the", "das": "the", "dem": "the", "den": "the",
+    "des": "the", "ein": "a", "eine": "a", "einem": "a", "einen": "a",
+    "einer": "a", "eines": "a", "und": "and", "oder": "or", "aber": "but",
+    "nicht": "not", "ist": "is", "sind": "are", "war": "was", "hat": "has",
+    "haben": "have", "wird": "is", "werden": "are", "wurde": "was",
+    "kann": "can", "mit": "with", "von": "from", "auf": "on", "für": "for",
+    "in": "in", "an": "at", "zu": "to", "als": "as", "nach": "after",
+    "bei": "at", "um": "around", "aus": "from", "durch": "through",
+    "über": "about", "unter": "under", "zwischen": "between",
+    "vor": "before", "hinter": "behind", "neben": "next", "seit": "since",
+    "es": "it", "er": "he", "sie": "she", "wir": "we", "ihr": "you",
+    "diese": "this", "dieser": "this", "dieses": "this", "jeder": "every",
+    "alle": "all", "kein": "no", "keine": "no", "auch": "also",
+    "sehr": "very", "nur": "only", "noch": "still", "schon": "already",
+    "hier": "here", "dort": "there", "wo": "where", "wenn": "if",
+    "weil": "because", "dass": "that", "ob": "whether",
+}
+
+# ── Common DE→EN content-word map (high-frequency technical/legal/medical) ──
+# Multiple English options per German word to increase match chance
+_CONTENT_DE_EN = {}
+_content_pairs = [
+    # Common verbs (stem forms that appear in technical text)
+    ("erfindung", ["invention"]), ("betrifft", ["relates", "concerns", "pertains"]),
+    ("betreffen", ["relate", "concern"]), ("umfasst", ["comprises", "includes", "encompasses"]),
+    ("umfassen", ["comprise", "include"]), ("aufweist", ["has", "features", "exhibits"]),
+    ("aufweisen", ["have", "feature"]), ("vorgesehen", ["provided", "intended"]),
+    ("angeordnet", ["arranged", "disposed"]), ("verbunden", ["connected", "joined"]),
+    ("verwendet", ["used", "employed"]), ("beschrieben", ["described"]),
+    ("dargestellt", ["shown", "illustrated"]), ("gebildet", ["formed"]),
+    ("hergestellt", ["manufactured", "produced"]), ("enthält", ["contains", "includes"]),
+    ("enthalten", ["contain", "include"]), ("besteht", ["consists"]),
+    ("bestehen", ["consist"]), ("entspricht", ["corresponds"]),
+    ("zeigt", ["shows"]), ("weist", ["has", "exhibits"]),
+    # Common nouns
+    ("verfahren", ["method", "process", "procedure"]),
+    ("vorrichtung", ["device", "apparatus"]), ("einrichtung", ["device", "facility"]),
+    ("anordnung", ["arrangement", "assembly"]), ("ausführungsform", ["embodiment"]),
+    ("ausführungsbeispiel", ["embodiment", "example"]),
+    ("patentanspruch", ["claim"]), ("anspruch", ["claim"]),
+    ("patentansprüche", ["claims"]), ("ansprüche", ["claims"]),
+    ("figur", ["figure", "fig"]), ("zeichnung", ["drawing"]),
+    ("merkmal", ["feature", "characteristic"]), ("merkmale", ["features"]),
+    ("mittel", ["means"]), ("teil", ["part", "portion"]),
+    ("teile", ["parts", "portions"]), ("seite", "side"),
+    ("fläche", ["surface", "area"]), ("oberfläche", ["surface"]),
+    ("ende", ["end"]), ("rand", ["edge", "border"]),
+    ("öffnung", ["opening", "aperture"]), ("kanal", ["channel", "duct"]),
+    ("wand", ["wall"]), ("schicht", ["layer"]),
+    ("platte", ["plate"]), ("ring", ["ring"]),
+    ("ventil", ["valve"]), ("klappe", ["valve", "flap"]),
+    ("stent", ["stent"]), ("katheter", ["catheter"]),
+    ("implantat", ["implant"]), ("prothese", ["prosthesis"]),
+    ("gewebe", ["tissue"]), ("knochen", ["bone"]),
+    ("patient", ["patient"]), ("behandlung", ["treatment"]),
+    ("therapie", ["therapy"]), ("diagnose", ["diagnosis"]),
+    ("wirkstoff", ["active", "substance"]), ("dosis", ["dose", "dosage"]),
+    ("zusammensetzung", ["composition"]), ("verbindung", ["compound", "connection"]),
+    ("lösung", ["solution"]), ("mischung", ["mixture"]),
+    ("vertrag", ["contract", "agreement"]), ("vereinbarung", ["agreement"]),
+    ("klausel", ["clause"]), ("bestimmung", ["provision"]),
+    ("haftung", ["liability"]), ("gewährleistung", ["warranty"]),
+    ("partei", ["party"]), ("parteien", ["parties"]),
+    ("gericht", ["court"]), ("urteil", ["judgment", "ruling"]),
+    ("recht", ["right", "law"]), ("rechte", ["rights"]),
+    ("pflicht", ["obligation", "duty"]), ("pflichten", ["obligations", "duties"]),
+    ("frist", ["deadline", "period"]), ("zeitraum", ["period"]),
+    ("betrag", ["amount"]), ("kosten", ["costs", "expenses"]),
+    ("zahlung", ["payment"]), ("preis", ["price"]),
+    # Common adjectives / participles
+    ("faltbar", ["foldable", "collapsible"]), ("faltbaren", ["foldable", "collapsible"]),
+    ("mindestens", ["least"]), ("wenigstens", ["least"]),
+    ("wobei", ["wherein", "whereby"]), ("dadurch", ["thereby", "characterized"]),
+    ("insbesondere", ["particular", "especially"]),
+    ("beispielsweise", ["example"]), ("vorzugsweise", ["preferably"]),
+    ("wesentlich", ["essential", "substantial"]),
+    ("jeweilige", ["respective"]), ("jeweiligen", ["respective"]),
+    ("erste", ["first"]), ("ersten", ["first"]), ("erster", ["first"]),
+    ("zweite", ["second"]), ("zweiten", ["second"]),
+    ("dritte", ["third"]), ("dritten", ["third"]),
+    ("obere", ["upper"]), ("oberen", ["upper"]),
+    ("untere", ["lower"]), ("unteren", ["lower"]),
+    # Technical / engineering
+    ("spannung", ["voltage", "tension", "stress"]),
+    ("strom", ["current", "flow"]), ("leistung", ["power", "performance"]),
+    ("druck", ["pressure", "print"]), ("temperatur", ["temperature"]),
+    ("geschwindigkeit", ["speed", "velocity"]),
+    ("frequenz", ["frequency"]), ("widerstand", ["resistance"]),
+    ("steuerung", ["control"]), ("regelung", ["regulation", "control"]),
+    ("sensor", ["sensor"]), ("aktor", ["actuator"]),
+    ("antrieb", ["drive"]), ("motor", ["motor", "engine"]),
+    ("gehäuse", ["housing", "casing"]), ("rahmen", ["frame"]),
+    ("achse", ["axis", "axle"]), ("welle", ["shaft", "wave"]),
+    ("lager", ["bearing", "storage"]), ("dichtung", ["seal", "gasket"]),
+]
+for _de, _en_list in _content_pairs:
+    if isinstance(_en_list, str):
+        _en_list = [_en_list]
+    _CONTENT_DE_EN[_de] = _en_list
+
+# Reverse map for en-de direction
+_FUNC_EN_DE = {v: k for k, v in _FUNC_DE_EN.items()}
+# Handle many-to-one: "the" → "die" (arbitrary but consistent)
+
+# Build reverse content map
+_CONTENT_EN_DE = {}
+for _de, _en_list in _content_pairs:
+    for _en in _en_list:
+        _en_low = _en.lower()
+        if _en_low not in _CONTENT_EN_DE:
+            _CONTENT_EN_DE[_en_low] = [_de]
+        elif _de not in _CONTENT_EN_DE[_en_low]:
+            _CONTENT_EN_DE[_en_low].append(_de)
+
+
 def compute_word_alignment(source_text, translation_text, direction="de-en"):
     """
-    Build bidirectional word alignment by translating each source word
-    individually and matching against target words.
+    Precision-first word alignment: only show connections we are confident about.
 
-    Strategy:
-    1. Translate each source word individually via MarianMT → get per-word translations
-    2. Fuzzy-match each per-word translation against target words
-    3. Direct cognate/number matching as supplement
-    4. Compound word handling: if a source word translates to multiple target words, link all
+    Strategies (in priority order):
+    1. Glossary matches — highest confidence, uses loaded domain glossaries
+    2. Exact cognate / identical words (case-insensitive)
+    3. Number and date matching
+    4. High string similarity (≥0.75 ratio) for technical terms / proper nouns
+    5. Function word dictionary (der→the, und→and, etc.) — 1:1 nearest match
+    Anything uncertain is left unlinked (N/A is better than wrong).
     """
     src_words = source_text.split()
     tgt_words = translation_text.split()
@@ -157,106 +275,134 @@ def compute_word_alignment(source_text, translation_text, direction="de-en"):
     src_to_tgt = {i: [] for i in range(len(src_words))}
     tgt_to_src = {i: [] for i in range(len(tgt_words))}
 
+    src_clean = [_clean(w) for w in src_words]
     tgt_clean = [_clean(w) for w in tgt_words]
-    tgt_used = set()  # track which target words are already matched
+    tgt_used = set()
+    src_used = set()
 
-    # Step 1: Translate each source word individually via MarianMT
-    fwd_tok, fwd_model, _, _ = get_models(direction)
-    word_translations = {}
+    def _link(i, j):
+        """Create a bidirectional link between source[i] and target[j]."""
+        if j not in src_to_tgt[i]:
+            src_to_tgt[i].append(j)
+        if i not in tgt_to_src[j]:
+            tgt_to_src[j].append(i)
+        src_used.add(i)
+        tgt_used.add(j)
 
-    # Batch translate all source words at once for speed
-    # Each source word is translated as its own sentence
-    clean_src = [_clean(w) for w in src_words]
-    inputs = fwd_tok(clean_src, return_tensors="pt", padding=True, truncation=True)
-    with torch.no_grad():
-        outputs = fwd_model.generate(**inputs, num_beams=4, max_length=64)
-    for i, ids in enumerate(outputs):
-        trans = fwd_tok.decode(ids, skip_special_tokens=True).strip()
-        word_translations[i] = trans.lower()
-
-    # Step 2: Match each source word's translation against target words
-    for i in range(len(src_words)):
-        trans = word_translations.get(i, "")
-        if not trans:
+    # ── Strategy 1: Glossary matches ────────────────────────────────────
+    # Check multi-word glossary terms first (longest match wins)
+    for domain in glossaries:
+        src_idx = glossary_source_index.get(domain, {})
+        if not src_idx:
             continue
-        trans_words = trans.split()
-
-        # Find best matching target word(s) for this translation
-        best_matches = []
-        for tw in trans_words:
-            tw_clean = _clean(tw)
-            if len(tw_clean) < 2:
-                continue
-            best_j = -1
-            best_score = 0.4  # minimum threshold
-
-            for j, tc in enumerate(tgt_clean):
-                if len(tc) < 2:
+        # Try multi-word then single-word source matches
+        for span_len in range(min(5, len(src_words)), 0, -1):
+            for i in range(len(src_words) - span_len + 1):
+                phrase = " ".join(src_clean[i:i + span_len])
+                entry = src_idx.get(phrase)
+                if not entry:
                     continue
-                # Exact match
-                if tw_clean == tc:
-                    score = 1.0
-                # Prefix/stem match (e.g., "relat" in "relates")
-                elif tc.startswith(tw_clean[:min(5, len(tw_clean))]) or tw_clean.startswith(tc[:min(5, len(tc))]):
-                    score = 0.8
-                else:
-                    # Fuzzy match
-                    score = difflib.SequenceMatcher(None, tw_clean, tc).ratio()
+                # Found a glossary source match — find the preferred translation in target
+                pref = entry["preferred"].lower()
+                pref_words = pref.split()
+                # Slide a window over target to find the preferred translation
+                for tgt_span in range(min(5, len(tgt_words)), 0, -1):
+                    for j in range(len(tgt_words) - tgt_span + 1):
+                        tgt_phrase = " ".join(tgt_clean[j:j + tgt_span])
+                        if tgt_phrase == pref or difflib.SequenceMatcher(None, tgt_phrase, pref).ratio() > 0.85:
+                            # Link all source words in span to all target words in span
+                            for si in range(i, i + span_len):
+                                for tj in range(j, j + tgt_span):
+                                    _link(si, tj)
 
-                # Slight preference for unmatched target words
-                if j not in tgt_used:
-                    score += 0.05
-
-                if score > best_score:
-                    best_score = score
-                    best_j = j
-
-            if best_j >= 0:
-                best_matches.append(best_j)
-
-        for j in best_matches:
-            if j not in src_to_tgt[i]:
-                src_to_tgt[i].append(j)
-            if i not in tgt_to_src[j]:
-                tgt_to_src[j].append(i)
-            tgt_used.add(j)
-
-    # Step 3: Direct cognate/number/proper noun matching
-    for i, sw in enumerate(clean_src):
-        if len(sw) < 2:
+    # ── Strategy 2: Exact cognate / identical words ─────────────────────
+    for i, sc in enumerate(src_clean):
+        if i in src_used or len(sc) < 2:
             continue
         for j, tc in enumerate(tgt_clean):
-            if sw == tc and j not in src_to_tgt[i]:
-                src_to_tgt[i].append(j)
-                tgt_to_src[j].append(i)
+            if j in tgt_used or len(tc) < 2:
+                continue
+            if sc == tc:
+                _link(i, j)
 
-    # Step 4: Handle unmatched target words — try reverse (translate target→source, match)
-    unmatched_tgt = [j for j in range(len(tgt_words)) if not tgt_to_src[j]]
-    if unmatched_tgt:
-        rev_dir = "en-de" if direction == "de-en" else "de-en"
-        rev_tok, rev_model, _, _ = get_models(rev_dir)
-        unmatched_words = [_clean(tgt_words[j]) for j in unmatched_tgt]
-        if unmatched_words:
-            rev_inputs = rev_tok(unmatched_words, return_tensors="pt", padding=True, truncation=True)
-            with torch.no_grad():
-                rev_outputs = rev_model.generate(**rev_inputs, num_beams=4, max_length=64)
-            for idx, j in enumerate(unmatched_tgt):
-                rev_trans = rev_tok.decode(rev_outputs[idx], skip_special_tokens=True).lower()
-                rev_words = rev_trans.split()
-                best_i = -1
-                best_score = 0.5
-                for rw in rev_words:
-                    rw_clean = _clean(rw)
-                    for i, sc in enumerate(clean_src):
-                        score = 1.0 if rw_clean == sc else difflib.SequenceMatcher(None, rw_clean, sc).ratio()
-                        if score > best_score:
-                            best_score = score
-                            best_i = i
-                if best_i >= 0:
-                    if j not in src_to_tgt[best_i]:
-                        src_to_tgt[best_i].append(j)
-                    if best_i not in tgt_to_src[j]:
-                        tgt_to_src[j].append(best_i)
+    # ── Strategy 3: Number and date matching ────────────────────────────
+    _num_re = re.compile(r'\d[\d.,/%:-]*')
+    for i, sc in enumerate(src_clean):
+        if i in src_used:
+            continue
+        src_nums = _num_re.findall(sc)
+        if not src_nums:
+            continue
+        for j, tc in enumerate(tgt_clean):
+            if j in tgt_used:
+                continue
+            tgt_nums = _num_re.findall(tc)
+            if tgt_nums and any(sn == tn for sn in src_nums for tn in tgt_nums):
+                _link(i, j)
+
+    # ── Strategy 3b: Content-word dictionary lookup ──────────────────────
+    content_map = _CONTENT_DE_EN if direction == "de-en" else _CONTENT_EN_DE
+    for i, sc in enumerate(src_clean):
+        if i in src_used or len(sc) < 3:
+            continue
+        expected_list = content_map.get(sc)
+        if not expected_list:
+            continue
+        # Find the nearest unmatched target word matching any expected translation
+        best_j = -1
+        best_dist = float('inf')
+        for exp in expected_list:
+            exp_lower = exp.lower()
+            for j, tc in enumerate(tgt_clean):
+                if j in tgt_used:
+                    continue
+                # Check if target word starts with or equals the expected translation
+                if tc == exp_lower or tc.startswith(exp_lower) or exp_lower.startswith(tc):
+                    dist = abs(i / max(len(src_words), 1) - j / max(len(tgt_words), 1))
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_j = j
+        if best_j >= 0:
+            _link(i, best_j)
+
+    # ── Strategy 4: High string similarity (technical terms, proper nouns) ──
+    for i, sc in enumerate(src_clean):
+        if i in src_used or len(sc) < 4:
+            continue
+        best_j = -1
+        best_score = 0.75  # high threshold — precision over recall
+        for j, tc in enumerate(tgt_clean):
+            if j in tgt_used or len(tc) < 4:
+                continue
+            # Check prefix overlap (handles Stent/stent, Mitral/mitral, etc.)
+            ratio = difflib.SequenceMatcher(None, sc, tc).ratio()
+            if ratio > best_score:
+                best_score = ratio
+                best_j = j
+        if best_j >= 0:
+            _link(i, best_j)
+
+    # ── Strategy 5: Function word dictionary (1:1 nearest match) ────────
+    func_map = _FUNC_DE_EN if direction == "de-en" else _FUNC_EN_DE
+    for i, sc in enumerate(src_clean):
+        if i in src_used:
+            continue
+        expected = func_map.get(sc)
+        if not expected:
+            continue
+        # Find the nearest unmatched target word that equals the expected translation
+        best_j = -1
+        best_dist = float('inf')
+        for j, tc in enumerate(tgt_clean):
+            if j in tgt_used:
+                continue
+            if tc == expected:
+                dist = abs(i / max(len(src_words), 1) - j / max(len(tgt_words), 1))
+                if dist < best_dist:
+                    best_dist = dist
+                    best_j = j
+        if best_j >= 0:
+            _link(i, best_j)
 
     # Deduplicate and sort
     for k in src_to_tgt:
@@ -1749,18 +1895,44 @@ document.getElementById('source').addEventListener('keydown', function(e) {
 
 // Fix pasted text: normalize Unicode (decomposed → composed)
 // This fixes umlauts like ü appearing as u + combining diaeresis
-document.getElementById('source').addEventListener('paste', function(e) {
-    e.preventDefault();
-    const text = (e.clipboardData || window.clipboardData).getData('text');
-    // NFC normalization: combines decomposed characters (u + ̈ → ü)
-    const normalized = text.normalize('NFC');
-    const ta = this;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    ta.value = ta.value.substring(0, start) + normalized + ta.value.substring(end);
-    ta.selectionStart = ta.selectionEnd = start + normalized.length;
-    updateCharCount();
-});
+// Uses multiple approaches for browser compatibility
+(function() {
+    const srcEl = document.getElementById('source');
+
+    // Approach 1: intercept paste event
+    srcEl.addEventListener('paste', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const raw = (e.clipboardData || window.clipboardData).getData('text/plain');
+        if (!raw) return;
+        // NFC normalization: combines decomposed characters (u + combining diaeresis → ü)
+        const normalized = raw.normalize('NFC');
+        // Try execCommand first (preserves undo stack, works in most browsers)
+        if (document.execCommand) {
+            document.execCommand('insertText', false, normalized);
+        } else {
+            // Fallback: manual insertion
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            this.value = this.value.substring(0, start) + normalized + this.value.substring(end);
+            this.selectionStart = this.selectionEnd = start + normalized.length;
+        }
+        updateCharCount();
+    });
+
+    // Approach 2: also normalize on input (catches anything that slips through)
+    srcEl.addEventListener('input', function() {
+        const pos = this.selectionStart;
+        const before = this.value;
+        const after = before.normalize('NFC');
+        if (before !== after) {
+            this.value = after;
+            // Adjust cursor position for any length changes from normalization
+            const diff = before.length - after.length;
+            this.selectionStart = this.selectionEnd = Math.max(0, pos - diff);
+        }
+    });
+})();
 </script>
 </body>
 </html>
