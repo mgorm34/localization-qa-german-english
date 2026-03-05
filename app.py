@@ -752,6 +752,15 @@ except AttributeError:
     # Flask 2.x fallback
     app.config['JSON_AS_ASCII'] = False
 
+
+# CORS: allow HuggingFace iframe to call API across origins
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
 state = {
     "source": "",
     "translation": "",
@@ -1266,9 +1275,25 @@ let currentDir = 'de-en';
 let currentDomain = 'general';
 let currentData = null;  // full response data for alignment lookups
 
+// Detect base URL: works in iframe (HuggingFace Spaces) and direct access
+const API_BASE = (function() {
+    // If in an iframe, the actual app is at a different origin
+    // Try to detect HuggingFace Space embedding
+    const meta = document.querySelector('meta[name="space-host"]');
+    if (meta) return 'https://' + meta.content;
+    // Check if we're on huggingface.co (iframe wrapper)
+    if (window.location.hostname === 'huggingface.co') {
+        // Extract space name from URL: /spaces/user/name -> user-name.hf.space
+        const m = window.location.pathname.match(/\/spaces\/([^\/]+)\/([^\/]+)/);
+        if (m) return 'https://' + m[1] + '-' + m[2] + '.hf.space';
+    }
+    return '';  // Same origin (direct access or Colab)
+})();
+console.log('API base URL:', API_BASE || '(same origin)');
+
 // Load domains
 async function loadDomains() {
-    const res = await fetch('/api/domains');
+    const res = await fetch(API_BASE + '/api/domains');
     const data = await res.json();
     const sel = document.getElementById('domainSelect');
     sel.innerHTML = '';
@@ -1423,7 +1448,7 @@ async function doTranslate() {
     btn.disabled = true;
     spinner.classList.add('active');
     try {
-        const res = await fetch('/api/translate', {
+        const res = await fetch(API_BASE + '/api/translate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({source, direction: currentDir, domain: currentDomain}),
@@ -1440,7 +1465,7 @@ async function pickAlternative(phrase) {
     closeDropdowns();
     document.getElementById('transBox').style.opacity = '0.5';
     try {
-        const res = await fetch('/api/retranslate', {
+        const res = await fetch(API_BASE + '/api/retranslate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({chosen: phrase}),
@@ -1466,7 +1491,7 @@ async function handleFileUpload(event) {
     btn.disabled = true;
     btn.textContent = 'Translating document…';
     try {
-        const res = await fetch('/api/upload-document', { method: 'POST', body: formData });
+        const res = await fetch(API_BASE + '/api/upload-document', { method: 'POST', body: formData });
         const data = await res.json();
         if (data.error) { alert(data.error); return; }
         renderDocResults(data);
@@ -1872,13 +1897,24 @@ tbody tr:last-child td { border-bottom: none; }
 </div>
 
 <script>
+// Detect base URL for API calls (same as main page)
+const API_BASE = (function() {
+    const meta = document.querySelector('meta[name="space-host"]');
+    if (meta) return 'https://' + meta.content;
+    if (window.location.hostname === 'huggingface.co') {
+        const m = window.location.pathname.match(/\/spaces\/([^\/]+)\/([^\/]+)/);
+        if (m) return 'https://' + m[1] + '-' + m[2] + '.hf.space';
+    }
+    return '';
+})();
+
 let activeDomain = null;
 let allEntries = [];
 let editingIdx = null;   // null = adding new, number = editing existing
 
 // ── Load domains ──
 async function loadDomains() {
-    const res = await fetch('/api/domains');
+    const res = await fetch(API_BASE + '/api/domains');
     const data = await res.json();
     const grid = document.getElementById('domainGrid');
     grid.innerHTML = '';
@@ -1911,7 +1947,7 @@ async function selectDomain(domainId) {
 
 async function loadGlossary() {
     if (!activeDomain) return;
-    const res = await fetch('/api/glossary/' + activeDomain);
+    const res = await fetch(API_BASE + '/api/glossary/' + activeDomain);
     const data = await res.json();
     allEntries = data.entries || [];
     renderTable();
@@ -2028,10 +2064,10 @@ async function saveTerm() {
 
     let url, method;
     if (editingIdx !== null) {
-        url = '/api/glossary/' + activeDomain + '/edit/' + editingIdx;
+        url = API_BASE + '/api/glossary/' + activeDomain + '/edit/' + editingIdx;
         method = 'PUT';
     } else {
-        url = '/api/glossary/' + activeDomain + '/add';
+        url = API_BASE + '/api/glossary/' + activeDomain + '/add';
         method = 'POST';
     }
 
@@ -2053,7 +2089,7 @@ async function deleteTerm(idx) {
     const e = allEntries[idx];
     if (!confirm('Delete "' + e.source + ' → ' + e.preferred + '"?')) return;
     try {
-        const res = await fetch('/api/glossary/' + activeDomain + '/delete/' + idx, { method: 'DELETE' });
+        const res = await fetch(API_BASE + '/api/glossary/' + activeDomain + '/delete/' + idx, { method: 'DELETE' });
         const data = await res.json();
         if (data.error) { alert(data.error); return; }
         await loadGlossary();
@@ -2064,7 +2100,7 @@ async function deleteTerm(idx) {
 // ── Import / Export ──
 function exportGlossary() {
     if (!activeDomain) return;
-    window.location.href = '/api/glossary/' + activeDomain + '/export';
+    window.location.href = API_BASE + '/api/glossary/' + activeDomain + '/export';
 }
 
 async function importGlossary(event) {
@@ -2077,7 +2113,7 @@ async function importGlossary(event) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-        const res = await fetch('/api/glossary/' + activeDomain + '/upload', { method: 'POST', body: formData });
+        const res = await fetch(API_BASE + '/api/glossary/' + activeDomain + '/upload', { method: 'POST', body: formData });
         const data = await res.json();
         if (data.error) { alert(data.error); return; }
         await loadGlossary();
