@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import unicodedata
@@ -69,6 +70,76 @@ except OSError:
     nlp_de = spacy.load("de_core_news_sm")
 
 print(f"All models loaded ✓  (spaCy EN: {SPACY_MODEL})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DICTIONARY DATABASE (SQLite)
+# ══════════════════════════════════════════════════════════════════════════════
+
+try:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _base_dir = os.getcwd()
+
+DICT_DB_PATH = os.path.join(_base_dir, "dictionary.db")
+
+def _dict_conn():
+    """Get a thread-local SQLite connection to the dictionary."""
+    conn = sqlite3.connect(DICT_DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+_dict_cache_de = {}  # de_clean -> [en, en, ...]
+_dict_cache_en = {}  # en_clean -> [de, de, ...]
+
+def _load_dict_cache():
+    """Pre-load entire dictionary into memory for fast lookup."""
+    global _dict_cache_de, _dict_cache_en
+    if not os.path.exists(DICT_DB_PATH):
+        print(f"WARNING: Dictionary not found at {DICT_DB_PATH}")
+        return
+    conn = _dict_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT de_clean, en FROM entries")
+    for row in cur.fetchall():
+        de_c, en = row["de_clean"], row["en"]
+        _dict_cache_de.setdefault(de_c, []).append(en)
+    cur.execute("SELECT en_clean, de FROM entries")
+    for row in cur.fetchall():
+        en_c, de = row["en_clean"], row["de"]
+        _dict_cache_en.setdefault(en_c, []).append(de)
+    # Deduplicate
+    for k in _dict_cache_de:
+        _dict_cache_de[k] = list(dict.fromkeys(_dict_cache_de[k]))
+    for k in _dict_cache_en:
+        _dict_cache_en[k] = list(dict.fromkeys(_dict_cache_en[k]))
+    conn.close()
+    print(f"Dictionary loaded: {len(_dict_cache_de)} DE entries, {len(_dict_cache_en)} EN entries")
+
+_load_dict_cache()
+
+
+def dict_lookup_de(word):
+    """Look up a German word in the dictionary. Returns list of English translations."""
+    return _dict_cache_de.get(word.lower().strip(), [])
+
+
+def dict_lookup_en(word):
+    """Look up an English word in the dictionary. Returns list of German translations."""
+    return _dict_cache_en.get(word.lower().strip(), [])
+
+
+def dict_lookup_full(word, lang="de"):
+    """Full dictionary lookup returning detailed entries from SQLite."""
+    if not os.path.exists(DICT_DB_PATH):
+        return []
+    conn = _dict_conn()
+    cur = conn.cursor()
+    col = "de_clean" if lang == "de" else "en_clean"
+    cur.execute(f"SELECT de, en, pos, domain FROM entries WHERE {col} = ?", (word.lower().strip(),))
+    results = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return results
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -340,12 +411,19 @@ def compute_word_alignment(source_text, translation_text, direction="de-en"):
             if tgt_nums and any(sn == tn for sn in src_nums for tn in tgt_nums):
                 _link(i, j)
 
-    # ── Strategy 3b: Content-word dictionary lookup ──────────────────────
-    content_map = _CONTENT_DE_EN if direction == "de-en" else _CONTENT_EN_DE
+    # ── Strategy 3b: Dictionary lookup (SQLite-backed) ──────────────────
     for i, sc in enumerate(src_clean):
         if i in src_used or len(sc) < 3:
             continue
-        expected_list = content_map.get(sc)
+        # Look up in dictionary cache (much larger than old hardcoded map)
+        if direction == "de-en":
+            expected_list = dict_lookup_de(sc)
+        else:
+            expected_list = dict_lookup_en(sc)
+        if not expected_list:
+            # Also check old hardcoded content map as fallback
+            content_map = _CONTENT_DE_EN if direction == "de-en" else _CONTENT_EN_DE
+            expected_list = content_map.get(sc, [])
         if not expected_list:
             continue
         # Find the nearest unmatched target word matching any expected translation
@@ -685,107 +763,161 @@ def compute_beam_agreement(best, candidates, position):
 def compute_word_confidence(word, position, best, candidates, domain, direction, source_text):
     """
     Compute confidence for a single word in the translation.
-    Combines: beam agreement, glossary match, and word significance.
+
+    New scoring model:
+    - Glossary preferred term → high confidence (95)
+    - Glossary acceptable alternative → moderate confidence (75)
+    - Glossary avoid term → low confidence (15), flagged
+    - Dictionary-only term → no score (neutral, 60)
+    - Function words → neutral (60)
     Returns (confidence_score 0-100, flags dict).
     """
     flags = {}
 
-    # 1. Beam agreement (0-1)
-    beam_agree = compute_beam_agreement(best, candidates, position)
-
-    # 2. Glossary check
-    glossary_bonus = 0.0
-    entry = lookup_target_term(domain, word)
-    if entry:
-        if word.lower() == entry["preferred"].lower():
-            glossary_bonus = 0.2  # using the preferred term
-            flags["glossary"] = "preferred"
-            flags["context"] = entry.get("context", "")
-        elif word.lower() in [a.lower() for a in entry.get("alternatives", [])]:
-            glossary_bonus = 0.05  # acceptable but not preferred
-            flags["glossary"] = "acceptable"
-            flags["glossary_preferred"] = entry["preferred"]
-            flags["context"] = entry.get("context", "")
-        else:
-            glossary_bonus = 0.0
-
-    # Check if this word is in the avoid list of any glossary entry
-    for ent in glossaries.get(domain, []):
-        if word.lower() in [a.lower() for a in ent.get("avoid", [])]:
-            glossary_bonus = -0.3
-            flags["glossary"] = "avoid"
-            flags["glossary_preferred"] = ent["preferred"]
-            flags["context"] = ent.get("context", "")
-            break
-
-    # 3. Word significance — skip function words for highlighting
+    # Word significance — skip function words for highlighting
     doc = nlp_en(word)
     is_content_word = doc[0].pos_ in ("NOUN", "VERB", "ADJ", "ADV", "PROPN") if len(doc) > 0 else False
     flags["content_word"] = is_content_word
 
-    # Combine scores
-    raw = beam_agree + glossary_bonus
-    # Scale to 0-100
-    confidence = max(0, min(100, int(raw * 100)))
+    clean_w = word.lower().strip(".,;:!?\"'()[]{}–—-/")
+
+    # 1. Check glossary — this drives confidence
+    entry = lookup_target_term(domain, word)
+    if entry:
+        if word.lower() == entry["preferred"].lower():
+            flags["glossary"] = "preferred"
+            flags["context"] = entry.get("context", "")
+            return 95, flags
+        elif word.lower() in [a.lower() for a in entry.get("alternatives", [])]:
+            flags["glossary"] = "acceptable"
+            flags["glossary_preferred"] = entry["preferred"]
+            flags["context"] = entry.get("context", "")
+            return 75, flags
+
+    # 2. Check avoid list — low confidence
+    for ent in glossaries.get(domain, []):
+        if word.lower() in [a.lower() for a in ent.get("avoid", [])]:
+            flags["glossary"] = "avoid"
+            flags["glossary_preferred"] = ent["preferred"]
+            flags["context"] = ent.get("context", "")
+            return 15, flags
+
+    # 3. Dictionary-only → no score (neutral)
+    dict_hits = dict_lookup_en(clean_w) if direction == "de-en" else dict_lookup_de(clean_w)
+    if dict_hits:
+        flags["in_dictionary"] = True
+
+    # 4. For non-glossary words, use beam agreement as a soft signal
+    beam_agree = compute_beam_agreement(best, candidates, position)
+    # Scale: beam_agree 1.0 → 70, beam_agree 0.0 → 40
+    confidence = max(0, min(100, int(40 + beam_agree * 30)))
 
     return confidence, flags
 
 
-def extract_alternatives_filtered(best, candidates, position, score_map, domain):
+def extract_alternatives_for_word(word, position, best, candidates, score_map, domain, direction, source_text):
     """
-    Extract alternatives for a word position, filtered to only significant words.
-    Returns list of (alt_text, quality, glossary_info) dicts.
+    Extract alternatives for a word using dictionary + glossary.
+    Glossary terms are marked in green and brought to the top.
+    Returns list of {"text", "quality", "glossary"} dicts.
     """
     best_words = best.split()
     if position < 0 or position >= len(best_words):
         return []
-    target_word = best_words[position].lower()
+    target_word = best_words[position].lower().strip(".,;:!?\"'()[]{}–—-/")
 
     # Skip function words — don't offer alternatives for "the", "a", "is", etc.
     doc = nlp_en(best_words[position])
     if len(doc) > 0 and doc[0].pos_ in ("DET", "ADP", "CCONJ", "SCONJ", "PUNCT", "PART", "AUX", "SPACE"):
         return []
 
-    alts = {}
+    seen = {target_word}
+    glossary_alts = []  # glossary terms go first (green)
+    dict_alts = []      # dictionary alternatives
+    beam_alts = []      # beam search alternatives (legacy, still useful)
+
+    # 1. Find corresponding source word(s) via alignment
+    alignment = compute_word_alignment(source_text, best, direction) if source_text else {}
+    src_words_for_pos = []
+    tgt_to_src = alignment.get("tgt_to_src", {})
+    linked_src_indices = tgt_to_src.get(str(position), [])
+    src_word_list = source_text.split() if source_text else []
+    for si in linked_src_indices:
+        if si < len(src_word_list):
+            src_words_for_pos.append(_clean(src_word_list[si]))
+
+    # 2. Glossary alternatives for the source word(s)
+    for src_w in src_words_for_pos:
+        for d_id in glossaries:
+            entry = glossary_source_index.get(d_id, {}).get(src_w)
+            if entry:
+                pref = entry["preferred"]
+                if pref.lower() not in seen:
+                    seen.add(pref.lower())
+                    glossary_alts.append({
+                        "text": pref, "quality": 95,
+                        "glossary": {"status": "preferred", "context": entry.get("context", "")}
+                    })
+                for alt in entry.get("alternatives", []):
+                    if alt.lower() not in seen:
+                        seen.add(alt.lower())
+                        glossary_alts.append({
+                            "text": alt, "quality": 75,
+                            "glossary": {"status": "acceptable", "context": entry.get("context", "")}
+                        })
+
+    # 3. Dictionary alternatives for the source word(s)
+    for src_w in src_words_for_pos:
+        if direction == "de-en":
+            translations = dict_lookup_de(src_w)
+        else:
+            translations = dict_lookup_en(src_w)
+        for t in translations[:8]:
+            t_clean = t.lower().strip()
+            if t_clean not in seen:
+                seen.add(t_clean)
+                dict_alts.append({"text": t, "quality": 50, "glossary": None})
+
+    # 4. Beam search alternatives (from MarianMT candidates if available)
     for cand in candidates[1:]:
         cand_words = cand.split()
         sm = difflib.SequenceMatcher(None, best_words, cand_words)
         for op, i1, i2, j1, j2 in sm.get_opcodes():
             if op == "replace" and i1 <= position < i2:
                 replacement = " ".join(cand_words[j1:j2])
-                if replacement.lower() != target_word:
+                if replacement.lower() not in seen:
+                    seen.add(replacement.lower())
                     rank = score_map.get(cand, 999)
-                    if replacement not in alts or rank < alts[replacement]:
-                        alts[replacement] = rank
+                    total_cands = max(len(candidates), 1)
+                    quality = max(5, int(100 * (1 - rank / total_cands)))
+                    # Check glossary status for beam alternatives too
+                    g_info = None
+                    for d_id in glossaries:
+                        entry = glossary_target_index.get(d_id, {}).get(replacement.lower())
+                        if entry:
+                            if replacement.lower() == entry["preferred"].lower():
+                                g_info = {"status": "preferred", "context": entry.get("context", "")}
+                            elif replacement.lower() in [a.lower() for a in entry.get("alternatives", [])]:
+                                g_info = {"status": "acceptable", "context": entry.get("context", "")}
+                    for ent in glossaries.get(domain, []):
+                        if replacement.lower() in [a.lower() for a in ent.get("avoid", [])]:
+                            g_info = {"status": "avoid", "preferred": ent["preferred"], "context": ent.get("context", "")}
+                            break
+                    beam_alts.append({"text": replacement, "quality": quality, "glossary": g_info})
 
-    total_cands = max(len(candidates), 1)
-    result = []
-    for alt_text, rank in sorted(alts.items(), key=lambda x: x[1])[:10]:
-        quality = max(5, int(100 * (1 - rank / total_cands)))
-        # Check glossary for this alternative
-        g_info = None
-        entry = lookup_target_term(domain, alt_text)
-        if entry:
-            if alt_text.lower() == entry["preferred"].lower():
-                g_info = {"status": "preferred", "context": entry.get("context", "")}
-            elif alt_text.lower() in [a.lower() for a in entry.get("alternatives", [])]:
-                g_info = {"status": "acceptable", "context": entry.get("context", "")}
-        # Check avoid
-        for ent in glossaries.get(domain, []):
-            if alt_text.lower() in [a.lower() for a in ent.get("avoid", [])]:
-                g_info = {"status": "avoid", "preferred": ent["preferred"], "context": ent.get("context", "")}
-                break
-        result.append({"text": alt_text, "quality": quality, "glossary": g_info})
-
-    return result
+    # Combine: glossary first (green), then dictionary, then beam
+    result = glossary_alts + dict_alts + beam_alts
+    return result[:15]
 
 
-def precompute_all_alternatives(best, candidates, score_map, domain):
-    """Pre-compute alternatives for every word position, filtered for significance."""
+def precompute_all_alternatives(best, candidates, score_map, domain, direction="de-en", source_text=""):
+    """Pre-compute alternatives for every word position using dictionary + glossary."""
     words = best.split()
     result = {}
     for i in range(len(words)):
-        alts = extract_alternatives_filtered(best, candidates, i, score_map, domain)
+        alts = extract_alternatives_for_word(
+            words[i], i, best, candidates, score_map, domain, direction, source_text
+        )
         if alts:
             result[str(i)] = alts
     return result
@@ -983,6 +1115,10 @@ def api_status():
         "deepl_url": DEEPL_URL,
         "spacy_model": SPACY_MODEL,
         "glossary_counts": {d: len(glossaries.get(d, [])) for d in DOMAINS},
+        "dictionary_de_entries": len(_dict_cache_de),
+        "dictionary_en_entries": len(_dict_cache_en),
+        "dictionary_db_path": DICT_DB_PATH,
+        "dictionary_db_exists": os.path.exists(DICT_DB_PATH),
         "encoding_test": "Ü Ö Ä ß ü ö ä",
     })
 
@@ -1044,9 +1180,9 @@ def api_translate():
     best, engine = translate_primary(source, direction)
     best = glossary_post_process(best, domain, direction)
 
-    # Generate alternatives from MarianMT beam search (lighter pass)
+    # Generate alternatives from dictionary + glossary (with beam search supplement)
     _, candidates, score_map = translate_with_beams(source, direction)
-    alts = precompute_all_alternatives(best, candidates, score_map, domain)
+    alts = precompute_all_alternatives(best, candidates, score_map, domain, direction, source)
     confidences = compute_all_confidences(best, candidates, domain, direction, source)
 
     # Word alignment for hover highlighting
@@ -1123,7 +1259,7 @@ def api_retranslate():
     if new_trans not in new_cands:
         new_cands.insert(0, new_trans)
         new_sm[new_trans] = 0
-    new_alts = precompute_all_alternatives(new_trans, new_cands, new_sm, state["domain"])
+    new_alts = precompute_all_alternatives(new_trans, new_cands, new_sm, state["domain"], state["direction"], state["source"])
     confidences = compute_all_confidences(new_trans, new_cands, state["domain"], state["direction"], state["source"])
     ppl = score_perplexity(new_trans)
     acc = score_backtranslation(state["source"], new_trans, state["direction"])
@@ -1139,6 +1275,85 @@ def api_retranslate():
         "perplexity": ppl,
         "accuracy": acc,
     })
+
+
+@app.route("/api/define", methods=["POST"])
+def api_define():
+    """Look up a word: glossary matches + quick MarianMT translation."""
+    data = request.json
+    word = unicodedata.normalize("NFC", data.get("word", "")).strip()
+    direction = data.get("direction", "de-en")
+    domain = data.get("domain", "general")
+    side = data.get("side", "src")  # "src" or "tgt"
+
+    if not word:
+        return jsonify({"error": "No word provided"}), 400
+
+    result = {"word": word, "entries": []}
+
+    clean_w = _clean(word)
+
+    # 1. Check all glossaries for this word
+    for d_id in glossaries:
+        if side == "src":
+            entry = glossary_source_index.get(d_id, {}).get(clean_w)
+        else:
+            entry = glossary_target_index.get(d_id, {}).get(clean_w)
+        if entry:
+            result["entries"].append({
+                "type": "glossary",
+                "domain": DOMAINS.get(d_id, {}).get("name", d_id),
+                "source": entry.get("source", ""),
+                "preferred": entry.get("preferred", ""),
+                "alternatives": entry.get("alternatives", []),
+                "context": entry.get("context", ""),
+                "avoid": entry.get("avoid", []),
+            })
+
+    # 2. Dictionary lookup (SQLite-backed, replaces MarianMT for definitions)
+    if side == "src":
+        if direction == "de-en":
+            dict_translations = dict_lookup_de(clean_w)
+        else:
+            dict_translations = dict_lookup_en(clean_w)
+    else:
+        # Target side: reverse lookup
+        if direction == "de-en":
+            dict_translations = dict_lookup_en(clean_w)
+        else:
+            dict_translations = dict_lookup_de(clean_w)
+
+    if dict_translations:
+        result["dictionary"] = dict_translations[:8]
+
+    # 3. Full dictionary details (POS, domain info)
+    lang = "de" if (direction == "de-en" and side == "src") or (direction == "en-de" and side == "tgt") else "en"
+    full_entries = dict_lookup_full(clean_w, lang=lang)
+    if full_entries:
+        result["translations"] = list(dict.fromkeys(
+            e["en"] if lang == "de" else e["de"] for e in full_entries
+        ))[:5]
+        # Group by domain for richer display
+        domains_found = {}
+        for e in full_entries:
+            d = e.get("domain", "general")
+            if d not in domains_found:
+                domains_found[d] = []
+            target = e["en"] if lang == "de" else e["de"]
+            if target not in domains_found[d]:
+                domains_found[d].append(target)
+        result["by_domain"] = domains_found
+    else:
+        result["translations"] = []
+
+    # 4. Fallback: check old hardcoded content-word dictionary
+    if not dict_translations:
+        cmap = _CONTENT_DE_EN if (direction == "de-en" and side == "src") else _CONTENT_EN_DE
+        dict_hits = cmap.get(clean_w, [])
+        if dict_hits:
+            result["dictionary"] = dict_hits
+
+    return jsonify(result)
 
 
 @app.route("/api/upload-document", methods=["POST"])
@@ -1375,6 +1590,18 @@ textarea:focus { border-color: #3b82f6; }
 .placeholder { color: #64748b; }
 
 /* Dropdown */
+/* Dictionary popup */
+.define-popup { background: #1e293b; border: 1px solid #3b82f6; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); min-width: 240px; max-width: 340px; overflow: hidden; }
+.dp-header { background: #172033; padding: 10px 14px; font-size: 16px; font-weight: 700; color: #f1f5f9; border-bottom: 1px solid #334155; }
+.dp-body { padding: 10px 14px; }
+.dp-section { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #1a2744; }
+.dp-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.dp-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #3b82f6; margin-bottom: 4px; }
+.dp-term { font-size: 14px; color: #e2e8f0; }
+.dp-alts { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.dp-avoid { font-size: 12px; color: #f87171; margin-top: 2px; }
+.dp-ctx { font-size: 11px; color: #64748b; margin-top: 3px; font-style: italic; }
+
 .tw-dropdown { position: absolute; background: #1e293b; border: 1px solid #475569; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px 0; z-index: 9999; min-width: 160px; max-width: 300px; }
 .tw-dropdown button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border: none; background: none; color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 14px; cursor: pointer; gap: 8px; text-align: left; }
 .tw-dropdown button:hover { background: #334155; }
@@ -1453,6 +1680,7 @@ textarea:focus { border-color: #3b82f6; }
         <div class="panel-label">
             <span>Source Text</span>
             <span class="char-count" id="charCount">0 / 10,000</span>
+            <span class="char-count" style="cursor:pointer;color:#60a5fa;margin-left:8px;" onclick="document.getElementById('source').value=fixUmlauts(document.getElementById('source').value);updateCharCount();" title="Fix decomposed umlauts from paste">Fix text</span>
         </div>
         <textarea id="source" placeholder="Enter text here…" maxlength="10000" oninput="updateCharCount()"></textarea>
     </div>
@@ -1665,8 +1893,32 @@ function jumpToReview() {
 }
 
 // ── Translate ──
+// Unicode NFC normalization helper — fixes decomposed umlauts from paste
+function fixUmlauts(text) {
+    if (typeof text !== 'string') return text;
+    // First try native normalization
+    if (text.normalize) return text.normalize('NFC');
+    // Manual fallback for browsers that lack String.normalize (very old)
+    const map = {
+        'a\u0308': '\u00e4', 'A\u0308': '\u00c4',  // ä Ä
+        'o\u0308': '\u00f6', 'O\u0308': '\u00d6',  // ö Ö
+        'u\u0308': '\u00fc', 'U\u0308': '\u00dc',  // ü Ü
+        's\u0327': '\u015f', 'S\u0327': '\u015e',  // ş Ş (for Turkish loanwords)
+    };
+    let result = text;
+    for (const [decomp, comp] of Object.entries(map)) {
+        result = result.split(decomp).join(comp);
+    }
+    return result;
+}
+
 async function doTranslate() {
-    const source = document.getElementById('source').value.trim();
+    // CRITICAL: normalize umlauts before sending, regardless of how text was entered
+    const srcEl = document.getElementById('source');
+    const fixed = fixUmlauts(srcEl.value.trim());
+    // Update textarea to show normalized form so user sees correct text
+    if (fixed !== srcEl.value.trim()) srcEl.value = fixed;
+    const source = fixed;
     if (!source) return;
     const btn = document.getElementById('translateBtn');
     const spinner = document.getElementById('transLoading');
@@ -1885,7 +2137,101 @@ document.addEventListener('click', function(e) {
         parent.appendChild(dd);
         return;
     }
-    if (!e.target.closest('.tw-dropdown')) closeDropdowns();
+    // Click on any word (source or target) → show dictionary popup
+    var anyWord = e.target.closest('.tw-word');
+    if (anyWord && !anyWord.closest('.tw-dropdown')) {
+        showWordDefine(anyWord);
+        return;
+    }
+
+    if (!e.target.closest('.tw-dropdown') && !e.target.closest('.define-popup')) {
+        closeDropdowns();
+        closeDefinePopup();
+    }
+});
+
+// ── Dictionary popup on word click ──
+let _definePopup = null;
+function closeDefinePopup() {
+    if (_definePopup) { _definePopup.remove(); _definePopup = null; }
+}
+async function showWordDefine(wordEl) {
+    closeDefinePopup();
+    const word = wordEl.textContent.trim();
+    const side = wordEl.getAttribute('data-side') || 'src';
+    if (!word || word.length < 2) return;
+
+    // Create popup
+    const popup = document.createElement('div');
+    popup.className = 'define-popup';
+    popup.innerHTML = '<div class="dp-header">' + esc(word) + '</div><div class="dp-body"><span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;"></span> Looking up…</div>';
+
+    const rect = wordEl.getBoundingClientRect();
+    popup.style.position = 'fixed';
+    popup.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
+    popup.style.zIndex = '10000';
+    document.body.appendChild(popup);
+    _definePopup = popup;
+
+    try {
+        const res = await fetch(API_BASE + '/api/define', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({word: word, direction: currentDir, domain: currentDomain, side: side}),
+        });
+        const data = await res.json();
+
+        let html = '<div class="dp-header">' + esc(word) + '</div><div class="dp-body">';
+
+        // Glossary entries
+        if (data.entries && data.entries.length > 0) {
+            data.entries.forEach(function(e) {
+                html += '<div class="dp-section">';
+                html += '<div class="dp-label">' + esc(e.domain) + ' Glossary</div>';
+                html += '<div class="dp-term">' + esc(e.source) + ' → <strong>' + esc(e.preferred) + '</strong></div>';
+                if (e.alternatives && e.alternatives.length) html += '<div class="dp-alts">Also: ' + e.alternatives.map(esc).join(', ') + '</div>';
+                if (e.avoid && e.avoid.length) html += '<div class="dp-avoid">Avoid: ' + e.avoid.map(esc).join(', ') + '</div>';
+                if (e.context) html += '<div class="dp-ctx">' + esc(e.context) + '</div>';
+                html += '</div>';
+            });
+        }
+
+        // Dictionary hits by domain (richer display)
+        if (data.by_domain && Object.keys(data.by_domain).length > 0) {
+            for (const [dom, terms] of Object.entries(data.by_domain)) {
+                html += '<div class="dp-section">';
+                html += '<div class="dp-label">Dictionary — ' + esc(dom) + '</div>';
+                html += '<div class="dp-term">' + terms.map(esc).join(', ') + '</div>';
+                html += '</div>';
+            }
+        } else if (data.dictionary && data.dictionary.length > 0) {
+            html += '<div class="dp-section"><div class="dp-label">Dictionary</div>';
+            html += '<div class="dp-term">' + data.dictionary.map(esc).join(', ') + '</div></div>';
+        }
+
+        // Translations (from dictionary)
+        if (data.translations && data.translations.length > 0 && !data.by_domain) {
+            html += '<div class="dp-section"><div class="dp-label">Translation</div>';
+            html += '<div class="dp-term">' + data.translations.map(esc).join(' · ') + '</div></div>';
+        }
+
+        if (!data.entries?.length && !data.dictionary?.length && !data.translations?.length && !data.by_domain) {
+            html += '<div class="dp-section" style="color:#64748b;">No definitions found</div>';
+        }
+
+        html += '</div>';
+        popup.innerHTML = html;
+    } catch(err) {
+        popup.innerHTML = '<div class="dp-header">' + esc(word) + '</div><div class="dp-body" style="color:#f87171;">Lookup failed</div>';
+    }
+}
+
+// Close define popup when clicking outside
+document.addEventListener('mousedown', function(e) {
+    if (_definePopup && !_definePopup.contains(e.target) && !e.target.closest('.tw-word')) {
+        closeDefinePopup();
+    }
 });
 
 // Ctrl+Enter to translate
@@ -1893,46 +2239,51 @@ document.getElementById('source').addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doTranslate(); }
 });
 
-// Fix pasted text: normalize Unicode (decomposed → composed)
-// This fixes umlauts like ü appearing as u + combining diaeresis
-// Uses multiple approaches for browser compatibility
-(function() {
-    const srcEl = document.getElementById('source');
-
-    // Approach 1: intercept paste event
-    srcEl.addEventListener('paste', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const raw = (e.clipboardData || window.clipboardData).getData('text/plain');
-        if (!raw) return;
-        // NFC normalization: combines decomposed characters (u + combining diaeresis → ü)
-        const normalized = raw.normalize('NFC');
-        // Try execCommand first (preserves undo stack, works in most browsers)
-        if (document.execCommand) {
-            document.execCommand('insertText', false, normalized);
-        } else {
-            // Fallback: manual insertion
-            const start = this.selectionStart;
-            const end = this.selectionEnd;
-            this.value = this.value.substring(0, start) + normalized + this.value.substring(end);
-            this.selectionStart = this.selectionEnd = start + normalized.length;
-        }
-        updateCharCount();
-    });
-
-    // Approach 2: also normalize on input (catches anything that slips through)
-    srcEl.addEventListener('input', function() {
-        const pos = this.selectionStart;
-        const before = this.value;
-        const after = before.normalize('NFC');
-        if (before !== after) {
-            this.value = after;
-            // Adjust cursor position for any length changes from normalization
-            const diff = before.length - after.length;
-            this.selectionStart = this.selectionEnd = Math.max(0, pos - diff);
+// Umlaut fix: multiple layers of defense
+// Layer 1: intercept paste, normalize, re-insert
+try {
+    document.getElementById('source').addEventListener('paste', function(e) {
+        try {
+            const raw = (e.clipboardData || window.clipboardData).getData('text/plain');
+            if (!raw) return; // let default handle it
+            const fixed = fixUmlauts(raw);
+            if (fixed !== raw) {
+                // Only intercept if normalization actually changed something
+                e.preventDefault();
+                // Manual replacement needed because execCommand may not work in iframes
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                const before = this.value;
+                this.value = before.substring(0, start) + fixed + before.substring(end);
+                this.selectionStart = this.selectionEnd = start + fixed.length;
+                updateCharCount();
+            }
+            // If unchanged, let default paste behavior happen
+        } catch(err) {
+            console.log('Paste handler error (non-fatal):', err);
+            // Let default paste happen if our handler fails
         }
     });
-})();
+} catch(err) { console.log('Could not attach paste handler:', err); }
+
+// Layer 2: periodic normalization check (catches anything that slips through)
+setInterval(function() {
+    var el = document.getElementById('source');
+    if (!el || !el.value) return;
+    var fixed = fixUmlauts(el.value);
+    if (fixed !== el.value) {
+        var pos = el.selectionStart;
+        var diff = el.value.length - fixed.length;
+        el.value = fixed;
+        el.selectionStart = el.selectionEnd = Math.max(0, pos - diff);
+    }
+}, 500);
+
+// Layer 3: normalize on blur (when user clicks away from textarea)
+document.getElementById('source').addEventListener('blur', function() {
+    this.value = fixUmlauts(this.value);
+    updateCharCount();
+});
 </script>
 </body>
 </html>
